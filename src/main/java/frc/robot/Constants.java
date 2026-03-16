@@ -10,6 +10,7 @@
 
 package frc.robot;
 
+import com.ctre.phoenix6.CANBus;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
 
@@ -28,13 +29,8 @@ import edu.wpi.first.math.geometry.Rotation2d;
  */
 public class Constants {
 
-    /**
-     * Operational constants for general robot operation
-     */
-    public static final class OperationalConstants {
-        // Add operational constants here as needed
-        // Examples: loop times, timeouts, general thresholds
-    }
+    /** CANivore bus used by shooter, intake, and other non-drivetrain motors */
+    public static final CANBus kCANivoreBus = new CANBus("Carnivore");
 
     /**
      * DriveTrain constants - CAN IDs 1-20 (reserved range)
@@ -86,8 +82,8 @@ public class Constants {
         public static final int HOOD_SERVO = 0; // Hood angle servo (PWM)
 
         // Hood servo limits
-        public static final double HOOD_MIN = 0.15;
-        public static final double HOOD_MAX = 0.85;
+        public static final double HOOD_MIN = 0.0;
+        public static final double HOOD_MAX = 1.0;
 
         // Reserved: IDs 26-30 for future shooting system additions
     }
@@ -128,7 +124,13 @@ public class Constants {
 
     public static final class FeildConstants {
 
-        public static final Pose2d HUB_POSE = new Pose2d(5.33, 4.09, new Rotation2d());
+        public static final double FIELD_LENGTH_METERS = 16.54;
+
+        // Blue alliance hub position
+        public static final Pose2d BLUE_HUB_POSE = new Pose2d(5.33, 4.09, new Rotation2d());
+        // Red alliance hub position (mirrored across field center)
+        public static final Pose2d RED_HUB_POSE = new Pose2d(
+            FIELD_LENGTH_METERS - 5.33, 4.09, new Rotation2d());
 
         // TBD
         // public static final Pose2d LEFT_POSE =

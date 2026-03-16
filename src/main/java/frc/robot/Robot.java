@@ -4,11 +4,11 @@
 
 package frc.robot;
 
-import com.ctre.phoenix6.HootAutoReplay;
-
 import edu.wpi.first.hal.FRCNetComm.tInstances;
 import edu.wpi.first.hal.FRCNetComm.tResourceType;
 import edu.wpi.first.hal.HAL;
+import edu.wpi.first.math.geometry.Pose2d;
+import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.wpilibj.TimedRobot;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.CommandScheduler;
@@ -18,23 +18,25 @@ public class Robot extends TimedRobot {
 
     private final RobotContainer m_robotContainer;
 
-    /* log and replay timestamp and joystick data */
-    private final HootAutoReplay m_timeAndJoystickReplay = new HootAutoReplay()
-        .withTimestampReplay()
-        .withJoystickReplay();
-
     public Robot() {
         // Instantiate our RobotContainer.  This will perform all our button bindings, and put our
         // autonomous chooser on the dashboard.
-        m_robotContainer = new RobotContainer();
+        try {
+            m_robotContainer = new RobotContainer();
+            System.out.println(">>> Robot code started — build v30 <<<");
+        } catch (Exception e) {
+            System.err.println("!!! ROBOTCONTAINER CRASHED: " + e.getMessage());
+            e.printStackTrace();
+            throw e;
+        }
         HAL.report(tResourceType.kResourceType_Framework, tInstances.kFramework_RobotBuilder);
         enableLiveWindowInTest(true);
     }
 
     @Override
     public void robotPeriodic() {
-        m_timeAndJoystickReplay.update();
-        CommandScheduler.getInstance().run(); 
+        CommandScheduler.getInstance().run();
+        m_robotContainer.updateCalibrationTelemetry();
     }
 
     @Override
@@ -48,11 +50,11 @@ public class Robot extends TimedRobot {
 
     @Override
     public void autonomousInit() {
-        // m_autonomousCommand = m_robotContainer.getAutonomousCommand();
+        m_autonomousCommand = m_robotContainer.getAutonomousCommand();
 
-        //  if (m_autonomousCommand != null) {
-        //      CommandScheduler.getInstance().schedule(m_autonomousCommand);
-        //  }
+        if (m_autonomousCommand != null) {
+            CommandScheduler.getInstance().schedule(m_autonomousCommand);
+        }
     }
 
     @Override
@@ -66,6 +68,9 @@ public class Robot extends TimedRobot {
         if (m_autonomousCommand != null) {
             CommandScheduler.getInstance().cancel(m_autonomousCommand);
         }
+        // For testing: set pose to Default Path end position (2.5, 4.09) facing 180°
+        m_robotContainer.drivetrain.resetPose(
+            new Pose2d(2.5, 4.09, Rotation2d.k180deg));
     }
 
     @Override

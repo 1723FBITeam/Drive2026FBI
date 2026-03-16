@@ -1,0 +1,109 @@
+package frc.robot.commands;
+
+import edu.wpi.first.math.geometry.Pose2d;
+import edu.wpi.first.wpilibj.DriverStation;
+import edu.wpi.first.wpilibj.DriverStation.Alliance;
+import edu.wpi.first.wpilibj.Timer;
+import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
+import edu.wpi.first.wpilibj2.command.Command;
+import frc.robot.Constants;
+import frc.robot.subsystems.CommandSwerveDrivetrain;
+import frc.robot.subsystems.ShooterSubsystem;
+import frc.robot.subsystems.TurretSubsystem;
+
+/**
+ * Coordinates turret aiming, hood/flywheel auto-aim, and firing.
+ * Uses drivetrain odometry for both distance AND turret aiming.
+ * No Limelight required.
+ *
+ * Sequence:
+ * 1. Turret aims toward hub using robot pose (pose-based aiming)
+ * 2. Distance is calculated from robot pose to hub
+ * 3. Hood and flywheel speed are set via interpolation tables
+ * 4. Once turret is aimed AND flywheels are at speed, feeder + indexer fire
+ */
+public class AutoShootCommand extends Command {
+
+    private final TurretSubsystem turret;
+    private final ShooterSubsystem shooter;
+    private final CommandSwerveDrivetrain drivetrain;
+
+    private static final double FEED_DELAY = 0.3;
+    private double readyTimestamp = 0.0;
+    private boolean feeding = false;
+    private Pose2d targetPose = Constants.FeildConstants.BLUE_HUB_POSE;
+
+    public AutoShootCommand(TurretSubsystem turret, ShooterSubsystem shooter,
+                            CommandSwerveDrivetrain drivetrain) {
+        this.turret = turret;
+        this.shooter = shooter;
+        this.drivetrain = drivetrain;
+        addRequirements(turret, shooter);
+    }
+
+    @Override
+    public void initialize() {
+        feeding = false;
+        readyTimestamp = 0.0;
+
+        var alliance = DriverStation.getAlliance();
+        if (alliance.isPresent() && alliance.get() == Alliance.Red) {
+            targetPose = Constants.FeildConstants.RED_HUB_POSE;
+        } else {
+            targetPose = Constants.FeildConstants.BLUE_HUB_POSE;
+        }
+    }
+
+    @Override
+    public void execute() {
+        Pose2d robotPose = drivetrain.getState().Pose;
+
+        // 1. Aim turret toward hub using pose
+        turret.aimAtPose(robotPose, targetPose);
+
+        // 2. Calculate distance from robot pose to hub
+        double distance = robotPose.getTranslation()
+                .getDistance(targetPose.getTranslation());
+        SmartDashboard.putNumber("Auto Shoot Distance", distance);
+
+        // 3. Set hood + flywheel speed based on distance
+        if (distance > 0.5) {
+            shooter.autoAim(distance);
+        }
+
+        // 4. Check if ready to fire
+        boolean aimed = turret.isAimedAtPose(robotPose, targetPose);
+        boolean flywheelsReady = shooter.isReadyToShoot();
+        SmartDashboard.putBoolean("Auto Shoot Aimed", aimed);
+        SmartDashboard.putBoolean("Auto Shoot Flywheels", flywheelsReady);
+
+        if (aimed && flywheelsReady) {
+            if (readyTimestamp == 0.0) {
+                readyTimestamp = Timer.getFPGATimestamp();
+            }
+            if (Timer.getFPGATimestamp() - readyTimestamp >= FEED_DELAY) {
+                shooter.runFeeder(0.8);
+                shooter.runIndexer(0.6);
+                feeding = true;
+            }
+        } else {
+            readyTimestamp = 0.0;
+            if (feeding) {
+                shooter.stopFeeder();
+                shooter.stopIndexer();
+                feeding = false;
+            }
+        }
+    }
+
+    @Override
+    public void end(boolean interrupted) {
+        turret.stop();
+        shooter.stopAll();
+    }
+
+    @Override
+    public boolean isFinished() {
+        return false;
+    }
+}

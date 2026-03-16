@@ -11,6 +11,11 @@ import com.ctre.phoenix6.swerve.SwerveDrivetrainConstants;
 import com.ctre.phoenix6.swerve.SwerveModuleConstants;
 import com.ctre.phoenix6.swerve.SwerveRequest;
 
+import com.pathplanner.lib.auto.AutoBuilder;
+import com.pathplanner.lib.config.RobotConfig;
+import com.pathplanner.lib.controllers.PPHolonomicDriveController;
+import com.pathplanner.lib.config.PIDConstants;
+
 import edu.wpi.first.math.Matrix;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
@@ -130,6 +135,7 @@ public class CommandSwerveDrivetrain extends TunerSwerveDrivetrain implements Su
         if (Utils.isSimulation()) {
             startSimThread();
         }
+        configureAutoBuilder();
     }
 
     /**
@@ -196,6 +202,40 @@ public class CommandSwerveDrivetrain extends TunerSwerveDrivetrain implements Su
      */
     public Command applyRequest(Supplier<SwerveRequest> request) {
         return run(() -> this.setControl(request.get()));
+    }
+
+    /**
+     * Configures PathPlanner's AutoBuilder for path following with alliance flipping.
+     * Paths are designed on the blue side; they auto-mirror when on red alliance.
+     */
+    private void configureAutoBuilder() {
+        try {
+            RobotConfig config = RobotConfig.fromGUISettings();
+            AutoBuilder.configure(
+                () -> getState().Pose,           // Robot pose supplier
+                this::resetPose,                 // Reset odometry for auto starting pose
+                () -> getState().Speeds,         // Robot-relative ChassisSpeeds supplier
+                (speeds, feedforwards) -> setControl(
+                    new SwerveRequest.ApplyRobotSpeeds()
+                        .withSpeeds(speeds)
+                        .withWheelForceFeedforwardsX(feedforwards.robotRelativeForcesXNewtons())
+                        .withWheelForceFeedforwardsY(feedforwards.robotRelativeForcesYNewtons())
+                ),
+                new PPHolonomicDriveController(
+                    new PIDConstants(5.0, 0.0, 0.0),  // Translation PID — tune these
+                    new PIDConstants(5.0, 0.0, 0.0)   // Rotation PID — tune these
+                ),
+                config,
+                () -> {
+                    // Flip paths when on red alliance
+                    var alliance = DriverStation.getAlliance();
+                    return alliance.isPresent() && alliance.get() == Alliance.Red;
+                },
+                this // Drivetrain subsystem requirement
+            );
+        } catch (Exception e) {
+            DriverStation.reportError("Failed to load PathPlanner RobotConfig: " + e.getMessage(), e.getStackTrace());
+        }
     }
 
     /**

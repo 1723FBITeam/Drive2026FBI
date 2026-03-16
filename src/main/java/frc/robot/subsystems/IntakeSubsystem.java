@@ -1,108 +1,104 @@
 package frc.robot.subsystems;
 
-import java.util.Map;
-
 import com.ctre.phoenix6.configs.MotorOutputConfigs;
+import com.ctre.phoenix6.configs.TalonFXSConfiguration;
 import com.ctre.phoenix6.hardware.TalonFX;
+import com.ctre.phoenix6.hardware.TalonFXS;
 import com.ctre.phoenix6.signals.InvertedValue;
-import edu.wpi.first.math.controller.PIDController;
-import edu.wpi.first.math.filter.SlewRateLimiter;
-import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
-
-import com.ctre.phoenix6.controls.StaticBrake;
-
+import com.ctre.phoenix6.signals.MotorArrangementValue;
+import com.ctre.phoenix6.signals.NeutralModeValue;
+import edu.wpi.first.networktables.DoublePublisher;
+import edu.wpi.first.networktables.NetworkTable;
+import edu.wpi.first.networktables.NetworkTableInstance;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import frc.robot.Constants;
 
 public class IntakeSubsystem extends SubsystemBase {
 
-private final TalonFX intakeLeftMotor =
-    new TalonFX(Constants.IntakeConstants.INTAKE_LEFT_MOTOR, "Carnivore");
+    private final TalonFX intakeLeftMotor =
+        new TalonFX(Constants.IntakeConstants.INTAKE_LEFT_MOTOR, Constants.kCANivoreBus);
+    private final TalonFX intakeRightMotor =
+        new TalonFX(Constants.IntakeConstants.INTAKE_RIGHT_MOTOR, Constants.kCANivoreBus);
+    private final TalonFXS intakeLeftActivator =
+        new TalonFXS(Constants.IntakeConstants.DEPLOY_LEFT_MOTOR, Constants.kCANivoreBus);
+    private final TalonFXS intakeRightActivator =
+        new TalonFXS(Constants.IntakeConstants.DEPLOY_RIGHT_MOTOR, Constants.kCANivoreBus);
 
-private final TalonFX intakeRightMotor =
-    new TalonFX(Constants.IntakeConstants.INTAKE_RIGHT_MOTOR, "Carnivore");
+    // Deploy speed — simple fixed speed for now until we find positions
+    private static final double DEPLOY_SPEED = 0.25;
 
-private final TalonFX intakeLeftActivator =
-    new TalonFX(Constants.IntakeConstants.DEPLOY_LEFT_MOTOR, "Carnivore");
+    private double deployOutput = 0.0; // current deploy motor output
 
-private final TalonFX intakeRightActivator =
-    new TalonFX(Constants.IntakeConstants.DEPLOY_RIGHT_MOTOR, "Carnivore");    
+    // Shuffleboard telemetry
+    private final DoublePublisher ntLeftPos;
+    private final DoublePublisher ntRightPos;
+    private final DoublePublisher ntAvgPos;
+    private final DoublePublisher ntOutput;
 
-private SlewRateLimiter rateLimiter = new SlewRateLimiter(3);
+    public IntakeSubsystem() {
+        // Configure TalonFXS deploy motors — must set motor type to Minion
+        TalonFXSConfiguration fxsConfig = new TalonFXSConfiguration();
+        fxsConfig.Commutation.MotorArrangement = MotorArrangementValue.Minion_JST;
+        fxsConfig.MotorOutput.NeutralMode = NeutralModeValue.Brake;
+        intakeLeftActivator.getConfigurator().apply(fxsConfig);
+        intakeRightActivator.getConfigurator().apply(fxsConfig);
+        MotorOutputConfigs leftConfigs = new MotorOutputConfigs();
+        leftConfigs.Inverted = InvertedValue.CounterClockwise_Positive;
+        leftConfigs.NeutralMode = NeutralModeValue.Brake;
+        intakeLeftMotor.getConfigurator().apply(leftConfigs);
 
-// PID Constants
-private static final double kP_UP = 0.025; // Proportional gain
-private static final double kP_DOWN = 0.025; // Proportional gain
-private static final double kI = 0.0; // Integral gain
-private static final double kD = 0.0; // Derivative gain
+        MotorOutputConfigs rightConfigs = new MotorOutputConfigs();
+        rightConfigs.Inverted = InvertedValue.Clockwise_Positive;
+        rightConfigs.NeutralMode = NeutralModeValue.Brake;
+        intakeRightMotor.getConfigurator().apply(rightConfigs);
 
-private PIDController pid;
+        // Zero encoders on startup
+        intakeLeftActivator.setPosition(0);
+        intakeRightActivator.setPosition(0);
 
-private Map<Integer, Double> targetPositions = Map.of(
-            0, 1.23,
-            1, 1.23);
+        NetworkTable calTable = NetworkTableInstance.getDefault().getTable("Shuffleboard/Calibration");
+        ntLeftPos  = calTable.getDoubleTopic("Intake L Pos").publish();
+        ntRightPos = calTable.getDoubleTopic("Intake R Pos").publish();
+        ntAvgPos   = calTable.getDoubleTopic("Intake Avg Pos").publish();
+        ntOutput   = calTable.getDoubleTopic("Intake Output").publish();
+    }
 
-     private int currentPositionKey = 0;
+    public void runIntake(double speed) {
+        intakeLeftMotor.set(speed);
+        intakeRightMotor.set(speed);
+    }
 
-public IntakeSubsystem() {
+    public void stopIntake() {
+        intakeLeftMotor.stopMotor();
+        intakeRightMotor.stopMotor();
+    }
 
-MotorOutputConfigs leftConfigs = new MotorOutputConfigs();
-leftConfigs.Inverted = InvertedValue.CounterClockwise_Positive;
-intakeLeftMotor.getConfigurator().apply(leftConfigs);
-intakeLeftActivator.getConfigurator().apply(leftConfigs);
+    /** Run deploy motors forward (out) */
+    public void deployOut() {
+        intakeLeftActivator.set(DEPLOY_SPEED);
+        intakeRightActivator.set(DEPLOY_SPEED);
+    }
 
-MotorOutputConfigs rightConfigs = new MotorOutputConfigs();
-rightConfigs.Inverted = InvertedValue.Clockwise_Positive;
-intakeRightMotor.getConfigurator().apply(rightConfigs);
-intakeRightActivator.getConfigurator().apply(rightConfigs);
+    /** Run deploy motors reverse (in) */
+    public void deployIn() {
+        intakeLeftActivator.set(-DEPLOY_SPEED);
+        intakeRightActivator.set(-DEPLOY_SPEED);
+    }
 
- pid = new PIDController(kP_UP, kI, kD);
-    intakeLeftActivator.setControl(new StaticBrake());
-    intakeLeftActivator.setPosition(0);
-    intakeRightActivator.setControl(new StaticBrake());
-    intakeRightActivator.setPosition(0);
-}
-public void runIntake(double speed) {
-    intakeLeftMotor.set(speed);
-    intakeRightMotor.set(speed);
-}
+    /** Stop deploy motors */
+    public void stopDeploy() {
+        intakeLeftActivator.stopMotor();
+        intakeRightActivator.stopMotor();
+    }
 
-public void stopIntake() {
-    intakeLeftMotor.stopMotor();
-    intakeRightMotor.stopMotor();
-}
+    @Override
+    public void periodic() {
+        double leftPos = intakeLeftActivator.getPosition().getValueAsDouble();
+        double rightPos = intakeRightActivator.getPosition().getValueAsDouble();
 
-public void setIntakeUp() {
-    pid.setP(kP_UP);
-        currentPositionKey = targetPositions.keySet().stream().max(Integer::compareTo).orElse(currentPositionKey);
-}
-
-public void setIntakeDown() {
-    pid.setP(kP_DOWN);
-        currentPositionKey = targetPositions.keySet().stream().min(Integer::compareTo).orElse(currentPositionKey);    
-}
-
-@Override
-public void periodic() {
-    // 1. Get the average position (or just pick one if they are linked)
-    double leftPos = intakeLeftActivator.getPosition().getValueAsDouble();
-    double rightPos = intakeRightActivator.getPosition().getValueAsDouble();
-    double avgPosition = (leftPos + rightPos) / 2.0;
-
-    // 2. Calculate PID based on where the mechanism actually is
-    double target = targetPositions.get(currentPositionKey);
-    double pidOutput = pid.calculate(avgPosition, target);
-
-    // 3. Apply Rate Limiting ONCE to the output
-    double limitedOutput = rateLimiter.calculate(pidOutput);
-
-    // 4. Set both motors to the same limited value
-    intakeLeftActivator.set(limitedOutput);
-    intakeRightActivator.set(limitedOutput);
-
-    // 5. Log your data
-    SmartDashboard.putNumber("Intake/Avg Position", avgPosition);
-    SmartDashboard.putNumber("Intake/Target", target);
-    SmartDashboard.putNumber("Intake/Output", limitedOutput);
-}
+        ntLeftPos.set(leftPos);
+        ntRightPos.set(rightPos);
+        ntAvgPos.set((leftPos + rightPos) / 2.0);
+        ntOutput.set(0);
+    }
 }
