@@ -119,7 +119,7 @@ public class RobotContainer {
         // PathPlanner autonomous routines can trigger these by name.
         // For example, a path can say "run Intake" at a certain point.
         NamedCommands.registerCommand("TurretAim", Commands.run(() -> {
-            turretSubsystem.aimAtPose(drivetrain.getState().Pose, getHubPose());
+            turretSubsystem.aimAtPose(drivetrain.getState().Pose, getSmartTarget());
         }, turretSubsystem));
         NamedCommands.registerCommand("Intake", Commands.run(() -> {
             intakeSubsystem.deployOut();
@@ -192,7 +192,7 @@ public class RobotContainer {
         // Y BUTTON — toggle auto-shoot (aims turret, spins flywheels, feeds when ready)
         // Press once to start, press again to stop
         controller.y()
-            .toggleOnTrue(new AutoShootCommand(turretSubsystem, shooterSubsystem, drivetrain));
+            .toggleOnTrue(new AutoShootCommand(turretSubsystem, shooterSubsystem, drivetrain, this::getSmartTarget));
 
         // X BUTTON — toggle intake sequence
         // First press: deploys intake out briefly, then runs rollers continuously
@@ -224,7 +224,7 @@ public class RobotContainer {
 
         // START BUTTON — toggle shoot sequence (same as Y, alternate binding)
         controller.start()
-            .toggleOnTrue(new AutoShootCommand(turretSubsystem, shooterSubsystem, drivetrain));
+            .toggleOnTrue(new AutoShootCommand(turretSubsystem, shooterSubsystem, drivetrain, this::getSmartTarget));
 
         // D-PAD UP — save current shot data for calibration
         // Prints distance + hood position to console and updates dashboard
@@ -232,7 +232,7 @@ public class RobotContainer {
             .onTrue(new InstantCommand(() -> {
                 Pose2d pose = drivetrain.getState().Pose;
                 double dist = pose.getTranslation().getDistance(
-                    getHubPose().getTranslation());
+                    getSmartTarget().getTranslation());
                 double hood = shooterSubsystem.getHoodPosition();
                 System.out.println(">>> SHOT DATA: dist=" + String.format("%.2f", dist)
                     + "m, hood=" + String.format("%.3f", hood)
@@ -306,7 +306,7 @@ public class RobotContainer {
         // When the driver presses a trigger to manually rotate, this gets interrupted,
         // and resumes when they let go.
         turretSubsystem.setDefaultCommand(new RunCommand(
-            () -> turretSubsystem.aimAtPose(drivetrain.getState().Pose, getHubPose()),
+            () -> turretSubsystem.aimAtPose(drivetrain.getState().Pose, getSmartTarget()),
             turretSubsystem));
 
         // Drivetrain default: drive using joystick input with cubic curve + slew rate limiting
@@ -324,19 +324,82 @@ public class RobotContainer {
         return autoChooser.getSelected();
     }
 
-    /** Returns the correct hub pose based on current alliance color (blue or red) */
-    private Pose2d getHubPose() {
+    /**
+     * Zone-aware target selection. Returns the best target based on where the
+     * robot is on the field:
+     *
+     *   OWN ALLIANCE ZONE → aim at our hub (normal shooting)
+     *   NEAR TRENCH       → flatten hood, don't shoot (just pass through)
+     *   NEUTRAL ZONE / OPPONENT'S SIDE → aim at whichever corner target is closer
+     *
+     * Also flattens the hood when near the trench boundary so we fit underneath.
+     */
+    public Pose2d getSmartTarget() {
+        Pose2d robotPose = drivetrain.getState().Pose;
+        double robotX = robotPose.getX();
+
         var alliance = DriverStation.getAlliance();
-        if (alliance.isPresent() && alliance.get() == Alliance.Red) {
-            return Constants.FieldConstants.RED_HUB_POSE;
+        boolean isRed = alliance.isPresent() && alliance.get() == Alliance.Red;
+
+        // Determine zone boundaries relative to our alliance
+        double ownZoneEnd;    // X where our alliance zone ends (toward neutral zone)
+        double oppZoneStart;  // X where opponent's alliance zone starts
+
+        if (isRed) {
+            // Red alliance: our zone is X > 12.51m, opponent zone is X < 4.03m
+            ownZoneEnd = Constants.FieldConstants.RED_ZONE_START;
+            oppZoneStart = Constants.FieldConstants.BLUE_ZONE_END;
+        } else {
+            // Blue alliance: our zone is X < 4.03m, opponent zone is X > 12.51m
+            ownZoneEnd = Constants.FieldConstants.BLUE_ZONE_END;
+            oppZoneStart = Constants.FieldConstants.RED_ZONE_START;
         }
-        return Constants.FieldConstants.BLUE_HUB_POSE;
+
+        // Check if we're near the trench (at the boundary between zones)
+        double trenchBuffer = Constants.FieldConstants.TRENCH_BUFFER;
+        boolean nearOwnTrench;
+        boolean inOwnZone;
+
+        if (isRed) {
+            nearOwnTrench = robotX < ownZoneEnd + trenchBuffer && robotX > ownZoneEnd - trenchBuffer;
+            inOwnZone = robotX > ownZoneEnd;
+        } else {
+            nearOwnTrench = robotX > ownZoneEnd - trenchBuffer && robotX < ownZoneEnd + trenchBuffer;
+            inOwnZone = robotX < ownZoneEnd;
+        }
+
+        // Near trench → flatten hood to fit under (22.25in clearance)
+        if (nearOwnTrench) {
+            shooterSubsystem.setHoodPosition(0.0);
+        }
+
+        // In our own alliance zone → aim at our hub
+        if (inOwnZone && !nearOwnTrench) {
+            return isRed ? Constants.FieldConstants.RED_HUB_POSE
+                         : Constants.FieldConstants.BLUE_HUB_POSE;
+        }
+
+        // In neutral zone or opponent's side → aim at closest corner target
+        // Also flatten hood to go under trench on the way there
+        Pose2d cornerLeft, cornerRight;
+        if (isRed) {
+            cornerLeft = Constants.FieldConstants.RED_CORNER_LEFT;
+            cornerRight = Constants.FieldConstants.RED_CORNER_RIGHT;
+        } else {
+            cornerLeft = Constants.FieldConstants.BLUE_CORNER_LEFT;
+            cornerRight = Constants.FieldConstants.BLUE_CORNER_RIGHT;
+        }
+
+        // Pick whichever corner is closer to the robot's current Y position
+        double distToLeft = robotPose.getTranslation().getDistance(cornerLeft.getTranslation());
+        double distToRight = robotPose.getTranslation().getDistance(cornerRight.getTranslation());
+        return (distToLeft < distToRight) ? cornerLeft : cornerRight;
     }
 
     /** Called from Robot.robotPeriodic() — updates calibration values on the dashboard */
     public void updateCalibrationTelemetry() {
         Pose2d pose = drivetrain.getState().Pose;
-        double dist = pose.getTranslation().getDistance(getHubPose().getTranslation());
+        double dist = pose.getTranslation().getDistance(getSmartTarget().getTranslation());
         calRobotX.setDouble(pose.getX());
         calRobotY.setDouble(pose.getY());
         calDistToHub.setDouble(dist);

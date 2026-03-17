@@ -13,6 +13,8 @@ import frc.robot.subsystems.CommandSwerveDrivetrain;
 import frc.robot.subsystems.ShooterSubsystem;
 import frc.robot.subsystems.TurretSubsystem;
 
+import java.util.function.Supplier;
+
 /**
  * AutoShootCommand — the "smart shoot" command that coordinates everything:
  *
@@ -40,17 +42,38 @@ public class AutoShootCommand extends Command {
     private double readyTimestamp = 0.0;  // When we first detected "ready to shoot"
     private boolean feeding = false;       // Are we currently feeding a note?
 
-    // Which hub to aim at (set in initialize based on alliance color)
+    // Which target to aim at — supplied dynamically so it changes as the robot
+    // moves between zones (hub on own side, corners on opponent's side)
+    private final Supplier<Pose2d> targetSupplier;
     private Pose2d targetPose = Constants.FieldConstants.BLUE_HUB_POSE;
 
+    /**
+     * Creates an AutoShootCommand with a dynamic target supplier.
+     * The supplier is called every loop so the target updates as the robot
+     * moves between field zones.
+     */
     public AutoShootCommand(TurretSubsystem turret, ShooterSubsystem shooter,
-                            CommandSwerveDrivetrain drivetrain) {
+                            CommandSwerveDrivetrain drivetrain, Supplier<Pose2d> targetSupplier) {
         this.turret = turret;
         this.shooter = shooter;
         this.drivetrain = drivetrain;
-        // addRequirements tells the command scheduler that this command "owns"
-        // the turret and shooter — no other command can use them at the same time
+        this.targetSupplier = targetSupplier;
         addRequirements(turret, shooter);
+    }
+
+    /**
+     * Convenience constructor — falls back to alliance-based hub targeting
+     * (for PathPlanner autos that don't have access to getSmartTarget).
+     */
+    public AutoShootCommand(TurretSubsystem turret, ShooterSubsystem shooter,
+                            CommandSwerveDrivetrain drivetrain) {
+        this(turret, shooter, drivetrain, () -> {
+            var alliance = DriverStation.getAlliance();
+            if (alliance.isPresent() && alliance.get() == Alliance.Red) {
+                return Constants.FieldConstants.RED_HUB_POSE;
+            }
+            return Constants.FieldConstants.BLUE_HUB_POSE;
+        });
     }
 
     /** Called once when the command starts */
@@ -58,19 +81,14 @@ public class AutoShootCommand extends Command {
     public void initialize() {
         feeding = false;
         readyTimestamp = 0.0;
-
-        // Pick the correct hub based on which alliance we're on
-        var alliance = DriverStation.getAlliance();
-        if (alliance.isPresent() && alliance.get() == Alliance.Red) {
-            targetPose = Constants.FieldConstants.RED_HUB_POSE;
-        } else {
-            targetPose = Constants.FieldConstants.BLUE_HUB_POSE;
-        }
+        targetPose = targetSupplier.get();
     }
 
     /** Called every 20ms while the command is running */
     @Override
     public void execute() {
+        // Update target every loop — it changes as the robot crosses field zones
+        targetPose = targetSupplier.get();
         // Get current robot position and velocity from the drivetrain
         Pose2d robotPose = drivetrain.getState().Pose;
         ChassisSpeeds fieldSpeeds = drivetrain.getState().Speeds;

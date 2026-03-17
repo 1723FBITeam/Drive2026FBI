@@ -2,7 +2,6 @@ package frc.robot.subsystems;
 
 import com.ctre.phoenix6.hardware.TalonFX;
 import com.ctre.phoenix6.controls.VelocityVoltage;
-import com.ctre.phoenix6.controls.DutyCycleOut;
 import com.ctre.phoenix6.configs.MotorOutputConfigs;
 import com.ctre.phoenix6.configs.Slot0Configs;
 import com.ctre.phoenix6.signals.InvertedValue;
@@ -148,19 +147,18 @@ public class ShooterSubsystem extends SubsystemBase {
     // FORMAT: table.put(distanceInMeters, value)
 
     // Hood table: distance → servo position (0.0 = flat, 1.0 = max angle up)
-    hoodTable.put(1.3, 0.13);  // Very close — almost flat
-    hoodTable.put(2.1, 0.21);  // Good — don't touch
-    hoodTable.put(3.0, 0.30);  // Was 0.40 — lowered, shots were going too far
-    hoodTable.put(3.8, 0.38);  // Was 0.55 — lowered
-    hoodTable.put(4.7, 0.47);  // Was 0.70 — lowered
+    hoodTable.put(1.3, 0.13);
+    hoodTable.put(2.1, 0.21);
+    hoodTable.put(3.0, 0.30);
+    hoodTable.put(3.8, 0.38);
+    hoodTable.put(4.7, 0.47);
 
     // Flywheel speed table: distance → speed in Rotations Per Second (RPS)
-    // Higher distance = faster spin needed to reach the hub
-    shooterRPSTable.put(1.3, 18.9);   // ~1134 RPM — close range (good, don't touch)
-    shooterRPSTable.put(2.1, 24.6);   // ~1476 RPM — (good, don't touch)
-    shooterRPSTable.put(3.0, 28.0);   // ~1680 RPM — was 30.0, reduced ~7%
-    shooterRPSTable.put(3.8, 32.5);   // ~1950 RPM — was 35.1, reduced ~7%
-    shooterRPSTable.put(4.7, 37.0);   // ~2220 RPM — was 39.9, reduced ~7%
+    shooterRPSTable.put(1.3, 18.9);   // ~1134 RPM
+    shooterRPSTable.put(2.1, 24.6);   // ~1476 RPM
+    shooterRPSTable.put(3.0, 28.0);   // ~1680 RPM
+    shooterRPSTable.put(3.8, 32.5);   // ~1950 RPM
+    shooterRPSTable.put(4.7, 37.0);   // ~2220 RPM
 
     // Set up dashboard publishers for the Calibration tab
     NetworkTable calTable = NetworkTableInstance.getDefault().getTable("Shuffleboard/Calibration");
@@ -336,12 +334,6 @@ public class ShooterSubsystem extends SubsystemBase {
   /** Get the current hood position (0.0 to 1.0) */
   public double getHoodPosition() {
     return currentHoodPosition;
-  }
-
-  /** Set hood speed directly (bypasses clamping — use setHoodPosition instead) */
-  public void setHoodSpeed(double value) {
-    currentHoodPosition = value;
-    hoodServo.set(value);
   }
 
   /**

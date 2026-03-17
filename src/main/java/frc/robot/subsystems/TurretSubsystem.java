@@ -93,11 +93,7 @@ public class TurretSubsystem extends SubsystemBase {
     private final PositionVoltage positionRequest = new PositionVoltage(0)
         .withEnableFOC(false);
 
-    // Slower position request used during resets — limits max output
-    private final PositionVoltage resetPositionRequest = new PositionVoltage(0)
-        .withEnableFOC(false);
-
-    // DutyCycleOut = simple "spin at X% power" for manual control
+    // DutyCycleOut = simple "spin at X% power" for manual control and resets
     private final DutyCycleOut manualRequest = new DutyCycleOut(0);
 
     // Dashboard telemetry publishers
@@ -118,10 +114,10 @@ public class TurretSubsystem extends SubsystemBase {
         // KS: Voltage to overcome static friction — raised because turret gets
         //     stiffer at the extremes of travel
         var slot0 = new Slot0Configs()
-            .withKP(30.0)    // Was 20.0 — more force to push through resistance
-            .withKI(0.5)     // Was 0.0 — builds up force if turret stalls against friction
-            .withKD(0.2)     // Was 0.1 — extra damping to prevent oscillation with higher KP
-            .withKS(0.6)     // Was 0.4 — more voltage to overcome stiffer friction at extremes
+            .withKP(30.0)
+            .withKI(0.5)
+            .withKD(0.2)
+            .withKS(0.6)
             .withKV(0.0)
             .withStaticFeedforwardSign(StaticFeedforwardSignValue.UseClosedLoopSign);
 
@@ -140,9 +136,7 @@ public class TurretSubsystem extends SubsystemBase {
         turretMotor.getConfigurator().apply(feedback);
         turretMotor.getConfigurator().apply(softLimits);
 
-        // Deadband: output zero when duty cycle is below 4% (prevents buzzing/humming)
-        // Raised from 2% to 4% because the higher PID gains can cause the motor
-        // to vibrate when it's very close to target but not perfectly on it
+        // Deadband: ignore output below 4% to prevent buzzing near target
         var motorOutput = new MotorOutputConfigs()
             .withDutyCycleNeutralDeadband(0.04);
         turretMotor.getConfigurator().apply(motorOutput);
@@ -282,12 +276,6 @@ public class TurretSubsystem extends SubsystemBase {
         if (moveDistance > RESET_THRESHOLD_ROTATIONS) {
             // Big move — this is a reset (wrapping around). Go slower.
             isResetting = true;
-            turretMotor.setControl(
-                resetPositionRequest.withPosition(targetMechRot)
-                    .withLimitForwardMotion(false)
-                    .withLimitReverseMotion(false));
-            // Limit output by using duty cycle override at reduced speed
-            // We use manual control toward the target at a capped speed
             double direction = Math.signum(targetMechRot - currentPos);
             turretMotor.setControl(manualRequest.withOutput(direction * RESET_SPEED_FRACTION));
         } else {

@@ -104,21 +104,50 @@ public class Constants {
     }
 
     /**
-     * Field positions used for auto-aiming.
+     * Field positions and zones used for auto-aiming.
      * All positions are in meters, using the WPILib "blue origin" coordinate system:
      *   - (0, 0) is the bottom-left corner when looking from the blue alliance wall
      *   - X increases toward the red alliance wall
      *   - Y increases toward the left (from blue's perspective)
+     *
+     * FIELD ZONES (2026 REBUILT):
+     *   Blue Alliance Zone:  X = 0 to 4.03m
+     *   Neutral Zone:        X = 4.03m to 12.51m (includes trenches at the boundaries)
+     *   Red Alliance Zone:   X = 12.51m to 16.54m
+     *
+     * TRENCH: 22.25in (56.5cm) clearance — hood must be flat to fit under.
+     *   Trenches run along the guardrails at the boundary between alliance zones
+     *   and the neutral zone (near the BUMPs at ~4.03m from each wall).
      */
     public static final class FieldConstants {
         // Total field length in meters
         public static final double FIELD_LENGTH_METERS = 16.54;
 
-        // Blue hub center position (where we aim when on blue alliance)
-        public static final Pose2d BLUE_HUB_POSE = new Pose2d(4.625, 4.04, new Rotation2d());
+        // ===== ZONE BOUNDARIES (X coordinates, blue origin) =====
+        // Alliance zone depth from the game manual: 158.6in = 4.03m
+        public static final double ALLIANCE_ZONE_DEPTH = 4.03;
+        // Neutral zone starts where alliance zone ends
+        public static final double BLUE_ZONE_END = ALLIANCE_ZONE_DEPTH;           // 4.03m
+        public static final double RED_ZONE_START = FIELD_LENGTH_METERS - ALLIANCE_ZONE_DEPTH; // 12.51m
 
-        // Red hub center position (mirrored across the field center line)
+        // Trench buffer — a small zone around the boundary where we flatten the hood
+        // to safely pass under the trench (robot length + margin)
+        public static final double TRENCH_BUFFER = 1.0; // 1 meter on each side of boundary
+
+        // ===== HUB POSITIONS =====
+        // Blue hub center: 158.6in from blue wall + half of 47in hub depth
+        public static final Pose2d BLUE_HUB_POSE = new Pose2d(4.625, 4.04, new Rotation2d());
+        // Red hub center: mirrored across field center
         public static final Pose2d RED_HUB_POSE = new Pose2d(
             FIELD_LENGTH_METERS - 4.625, 4.04, new Rotation2d());
+
+        // ===== CORNER TARGETS (for shooting from neutral zone / opponent's side) =====
+        // When on the opponent's side, we aim at corner targets instead of the hub.
+        // Blue corner targets (used when blue alliance is shooting from neutral/red side)
+        public static final Pose2d BLUE_CORNER_LEFT  = new Pose2d(3.5, 6.0, new Rotation2d());
+        public static final Pose2d BLUE_CORNER_RIGHT = new Pose2d(3.5, 2.0, new Rotation2d());
+        // Red corner targets (mirrored)
+        public static final Pose2d RED_CORNER_LEFT   = new Pose2d(FIELD_LENGTH_METERS - 3.5, 6.0, new Rotation2d());
+        public static final Pose2d RED_CORNER_RIGHT  = new Pose2d(FIELD_LENGTH_METERS - 3.5, 2.0, new Rotation2d());
     }
 }
