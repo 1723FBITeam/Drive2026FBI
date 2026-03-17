@@ -119,10 +119,10 @@ public class RobotContainer {
         // ===== SINGLE CONTROLLER LAYOUT =====
         // Left stick:    Drive X/Y (cubic curve)
         // Right stick X: Rotation (cubic curve)
-        // Left bumper:   Turret rotate left (manual override)
-        // Right bumper:  Turret rotate right (manual override)
-        // Left trigger:  Free
-        // Right trigger: Full shoot (flywheels + feeder + indexer)
+        // Left bumper:   Deploy intake out (hold)
+        // Right bumper:  Deploy intake in (hold)
+        // Left trigger:  Turret rotate left (analog pressure = speed)
+        // Right trigger: Turret rotate right (analog pressure = speed)
         // Y:             Spin up flywheels only (pre-spin)
         // X:             Toggle intake rollers on/off
         // A:             Hood servo nudge up (hold)
@@ -132,38 +132,52 @@ public class RobotContainer {
         // D-pad Up:      Save shot calibration data point
         // D-pad L/R/D:   Free for climber later
 
-        // Left Bumper — turret rotate left (manual)
+        // Left Trigger — turret rotate left (pressure sensitive, harder = faster)
+        controller.leftTrigger(0.05).whileTrue(Commands.run(
+            () -> turretSubsystem.rotate(-controller.getLeftTriggerAxis() * 0.5),
+            turretSubsystem).finallyDo(() -> turretSubsystem.stop()));
+
+        // Right Trigger — turret rotate right (pressure sensitive, harder = faster)
+        controller.rightTrigger(0.05).whileTrue(Commands.run(
+            () -> turretSubsystem.rotate(controller.getRightTriggerAxis() * 0.5),
+            turretSubsystem).finallyDo(() -> turretSubsystem.stop()));
+
+        // Left Bumper — deploy intake out (hold)
         controller.leftBumper()
             .whileTrue(new StartEndCommand(
-                () -> turretSubsystem.rotate(-0.15),
-                () -> turretSubsystem.stop(),
-                turretSubsystem));
+                () -> intakeSubsystem.deployOut(),
+                () -> intakeSubsystem.stopDeploy(),
+                intakeSubsystem));
 
-        // Right Bumper — turret rotate right (manual)
+        // Right Bumper — deploy intake in (hold)
         controller.rightBumper()
             .whileTrue(new StartEndCommand(
-                () -> turretSubsystem.rotate(0.15),
-                () -> turretSubsystem.stop(),
-                turretSubsystem));
+                () -> intakeSubsystem.deployIn(),
+                () -> intakeSubsystem.stopDeploy(),
+                intakeSubsystem));
 
-        // Right Trigger — full shoot (flywheels + feeder + indexer)
-        controller.rightTrigger()
-            .whileTrue(new StartEndCommand(
-                () -> shooterSubsystem.runFullShooter(0.7),
-                () -> shooterSubsystem.stopAll(),
-                shooterSubsystem));
-
-        // Y — spin up flywheels only
+        // Y — toggle auto-shoot (distance-based aiming, flywheels, feeds when ready)
         controller.y()
-            .whileTrue(new StartEndCommand(
-                () -> shooterSubsystem.runFlywheels(0.5),
-                () -> shooterSubsystem.stopFlywheels(),
-                shooterSubsystem));
+            .toggleOnTrue(new AutoShootCommand(turretSubsystem, shooterSubsystem, drivetrain));
 
-        // X — toggle intake rollers on/off
+        // X — toggle intake: first press deploys out + runs rollers, second press retracts + stops
         controller.x()
-            .toggleOnTrue(new RunCommand(() -> intakeSubsystem.runIntake(0.5), intakeSubsystem)
-                .finallyDo(() -> intakeSubsystem.stopIntake()));
+            .toggleOnTrue(new SequentialCommandGroup(
+                // Brief pulse to deploy out (gravity + hard stops do the rest)
+                new InstantCommand(() -> intakeSubsystem.deployOut(), intakeSubsystem),
+                new WaitCommand(0.3),
+                new InstantCommand(() -> intakeSubsystem.stopDeploy()),
+                // Run intake rollers until toggled off
+                new RunCommand(() -> intakeSubsystem.runIntake(0.5), intakeSubsystem)
+            ).finallyDo(() -> {
+                // On toggle off: brief pulse to retract, then stop everything
+                intakeSubsystem.deployIn();
+                intakeSubsystem.stopIntake();
+                // Schedule a delayed stop for deploy motors
+                new WaitCommand(0.3).andThen(
+                    new InstantCommand(() -> intakeSubsystem.stopDeploy())
+                ).schedule();
+            }));
 
         // A — hood servo up (hold to nudge position)
         controller.a()
@@ -173,25 +187,9 @@ public class RobotContainer {
         controller.b()
             .whileTrue(Commands.run(() -> shooterSubsystem.nudgeHood(-0.005)));
 
-        // Start — toggle shoot sequence with auto-aim (hood + flywheels scale with distance)
+        // Start — toggle shoot sequence (uses AutoShootCommand for single source of truth)
         controller.start()
-            .toggleOnTrue(new SequentialCommandGroup(
-                // Spin up flywheels using distance-based speed and set hood
-                new RunCommand(() -> {
-                    double dist = drivetrain.getState().Pose.getTranslation()
-                        .getDistance(getHubPose().getTranslation());
-                    shooterSubsystem.autoAim(dist);
-                }, shooterSubsystem)
-                    .until(() -> shooterSubsystem.isReadyToShoot()),
-                // Flywheels ready — keep auto-aiming and start feeder + indexer
-                new RunCommand(() -> {
-                    double dist = drivetrain.getState().Pose.getTranslation()
-                        .getDistance(getHubPose().getTranslation());
-                    shooterSubsystem.autoAim(dist);
-                    shooterSubsystem.runFeeder(0.7);
-                    shooterSubsystem.runIndexer(0.3);
-                }, shooterSubsystem)
-            ).finallyDo(() -> shooterSubsystem.stopAll()));
+            .toggleOnTrue(new AutoShootCommand(turretSubsystem, shooterSubsystem, drivetrain));
 
         // D-pad Up — save current shot data point for calibration
         controller.povUp()
@@ -248,9 +246,9 @@ public class RobotContainer {
     private Pose2d getHubPose() {
         var alliance = DriverStation.getAlliance();
         if (alliance.isPresent() && alliance.get() == Alliance.Red) {
-            return Constants.FeildConstants.RED_HUB_POSE;
+            return Constants.FieldConstants.RED_HUB_POSE;
         }
-        return Constants.FeildConstants.BLUE_HUB_POSE;
+        return Constants.FieldConstants.BLUE_HUB_POSE;
     }
 
     /** Call from Robot.robotPeriodic() to update calibration dashboard */

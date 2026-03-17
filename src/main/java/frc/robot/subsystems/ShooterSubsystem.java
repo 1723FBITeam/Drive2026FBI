@@ -1,9 +1,12 @@
 package frc.robot.subsystems;
 
 import com.ctre.phoenix6.hardware.TalonFX;
+import com.ctre.phoenix6.controls.VelocityVoltage;
 import com.ctre.phoenix6.controls.DutyCycleOut;
 import com.ctre.phoenix6.configs.MotorOutputConfigs;
+import com.ctre.phoenix6.configs.Slot0Configs;
 import com.ctre.phoenix6.signals.InvertedValue;
+import com.ctre.phoenix6.signals.NeutralModeValue;
 
 import edu.wpi.first.wpilibj.Servo;
 import edu.wpi.first.networktables.BooleanPublisher;
@@ -15,64 +18,83 @@ import frc.robot.Constants;
 import edu.wpi.first.math.MathUtil;
 import edu.wpi.first.math.interpolation.InterpolatingDoubleTreeMap;
 
-
 /**
- * Unified shooter subsystem - controls flywheels, feeder, and indexer as a coordinated unit.
- * Turret aiming is handled separately in TurretSubsystem for independent tracking.
+ * Unified shooter subsystem — flywheels now use closed-loop velocity control
+ * via Phoenix 6 VelocityVoltage for consistent shot speed regardless of battery state.
+ * Feeder and indexer remain duty-cycle controlled.
  */
 public class ShooterSubsystem extends SubsystemBase {
 
-  // Shooter flywheels
+  // Shooter flywheels — closed-loop velocity control
   private final TalonFX leftShooterMotor = new TalonFX(Constants.ShootingConstants.SHOOTER_LEFT_MOTOR, Constants.kCANivoreBus);
   private final TalonFX rightShooterMotor = new TalonFX(Constants.ShootingConstants.SHOOTER_RIGHT_MOTOR, Constants.kCANivoreBus);
-  
-  // Feeder - feeds notes into shooter
+
+  // Feeder — duty cycle (doesn't need precise speed)
   private final TalonFX feederMotor = new TalonFX(Constants.ShootingConstants.FEEDER_MOTOR, Constants.kCANivoreBus);
-  
-  // Indexer/Spinner - positions notes for feeding
+
+  // Indexer/Spinner — duty cycle
   private final TalonFX indexerMotor = new TalonFX(Constants.ShootingConstants.SPINNER_MOTOR, Constants.kCANivoreBus);
-  
-  private final DutyCycleOut shooterControl = new DutyCycleOut(0);
+
+  // Closed-loop velocity request for flywheels — runs at 1kHz on TalonFX
+  private final VelocityVoltage flywheelVelocity = new VelocityVoltage(0)
+      .withEnableFOC(false); // Set true if you have Pro license
 
   private final Servo hoodServo;
   private static final double HOOD_MIN = Constants.ShootingConstants.HOOD_MIN;
   private static final double HOOD_MAX = Constants.ShootingConstants.HOOD_MAX;
+
+  // Interpolation tables now map distance → RPS (rotations per second) instead of duty cycle
+  // This makes shots repeatable regardless of battery voltage
   private final InterpolatingDoubleTreeMap hoodTable = new InterpolatingDoubleTreeMap();
-  private final InterpolatingDoubleTreeMap shooterTable = new InterpolatingDoubleTreeMap();
+  private final InterpolatingDoubleTreeMap shooterRPSTable = new InterpolatingDoubleTreeMap();
+
+  // Target RPS for ready-to-shoot detection
+  private double targetRPS = 0.0;
 
   private final DoublePublisher ntHoodPos;
   private final DoublePublisher ntLeftVel;
   private final DoublePublisher ntRightVel;
+  private final DoublePublisher ntTargetVel;
   private final BooleanPublisher ntReady;
 
-  
   public ShooterSubsystem() {
-    // Configure shooter motors - inversions swapped to fix direction
+    // Configure flywheel PID + feedforward for velocity control
+    // These gains need to be tuned — run SysId on your shooter to get real KS/KV values
+    var flywheelGains = new Slot0Configs()
+        .withKP(0.1)    // Proportional — corrects velocity error
+        .withKI(0.0)    // Integral — leave at 0 initially
+        .withKD(0.0)    // Derivative — usually not needed for flywheels
+        .withKS(0.1)    // Static friction — voltage to just barely start spinning
+        .withKV(0.12);  // Velocity feedforward — volts per RPS to maintain speed
+
+    // Configure shooter motors — inversions for correct spin direction
     MotorOutputConfigs rightConfigs = new MotorOutputConfigs();
-    rightConfigs.Inverted = InvertedValue.CounterClockwise_Positive;  // Flipped
-    rightConfigs.NeutralMode = com.ctre.phoenix6.signals.NeutralModeValue.Coast;
+    rightConfigs.Inverted = InvertedValue.CounterClockwise_Positive;
+    rightConfigs.NeutralMode = NeutralModeValue.Coast;
     rightShooterMotor.getConfigurator().apply(rightConfigs);
+    rightShooterMotor.getConfigurator().apply(flywheelGains);
 
     MotorOutputConfigs leftConfigs = new MotorOutputConfigs();
-    leftConfigs.Inverted = InvertedValue.Clockwise_Positive;  // Flipped
-    leftConfigs.NeutralMode = com.ctre.phoenix6.signals.NeutralModeValue.Coast;
+    leftConfigs.Inverted = InvertedValue.Clockwise_Positive;
+    leftConfigs.NeutralMode = NeutralModeValue.Coast;
     leftShooterMotor.getConfigurator().apply(leftConfigs);
+    leftShooterMotor.getConfigurator().apply(flywheelGains);
 
-    // Configure feeder motor - opposite of shooter motors
+    // Configure feeder motor
     MotorOutputConfigs feederConfigs = new MotorOutputConfigs();
-    feederConfigs.Inverted = InvertedValue.Clockwise_Positive;  // Separate config for feeder
-    feederConfigs.NeutralMode = com.ctre.phoenix6.signals.NeutralModeValue.Coast;
+    feederConfigs.Inverted = InvertedValue.Clockwise_Positive;
+    feederConfigs.NeutralMode = NeutralModeValue.Coast;
     feederMotor.getConfigurator().apply(feederConfigs);
 
     // Configure indexer
     MotorOutputConfigs indexerConfigs = new MotorOutputConfigs();
     indexerConfigs.Inverted = InvertedValue.CounterClockwise_Positive;
-    indexerConfigs.NeutralMode = com.ctre.phoenix6.signals.NeutralModeValue.Coast;
+    indexerConfigs.NeutralMode = NeutralModeValue.Coast;
     indexerMotor.getConfigurator().apply(indexerConfigs);
 
     // ===== SHOT CALIBRATION TABLES =====
-    // Maps distance (meters from hub) → hood position (0.0–1.0) and flywheel speed (0.0–1.0)
-    // 
+    // Maps distance (meters from hub) → hood position (0.0–1.0) and flywheel speed (RPS)
+    //
     // HOW TO CALIBRATE:
     // 1. Press Start to begin shooting (auto-aim sets hood + flywheels from these tables)
     // 2. Check "Dist to Hub" on the Calibration tab to see your distance
@@ -81,31 +103,32 @@ public class ShooterSubsystem extends SubsystemBase {
     // 5. Update the tables below with your real data points
     //
     // FORMAT: table.put(distanceInMeters, value)
-    //   hoodTable:    0.0 = all the way down, 1.0 = all the way up
-    //   shooterTable: 0.0 = stopped, 1.0 = full speed
+    //   hoodTable:       0.0 = all the way down, 1.0 = all the way up
+    //   shooterRPSTable: target flywheel speed in rotations per second
     //
-    // Tips:
-    // - More data points = smoother interpolation between distances
-    // - If overshooting: lower hood value or lower flywheel speed at that distance
-    // - If undershooting: raise hood value or raise flywheel speed at that distance
-    // - The table interpolates linearly between points, so 2.5m will blend 2.1 and 3.0 values
+    // To convert from old duty cycle values: RPS ≈ dutyCycle × maxFreeSpeedRPS
+    // For Kraken X60: max free speed ≈ 106 RPS (6380 RPM)
+    // For Falcon 500: max free speed ≈ 100 RPS (6000 RPM)
+    // Hood table: distance in meters → servo position (0.0 = flat, 1.0 = max angle)
     hoodTable.put(1.3, 0.15);
     hoodTable.put(2.1, 0.25);
     hoodTable.put(3.0, 0.40);
     hoodTable.put(3.8, 0.55);
     hoodTable.put(4.7, 0.70);
 
-    shooterTable.put(1.3, 0.35);
-    shooterTable.put(2.1, 0.42);
-    shooterTable.put(3.0, 0.52);
-    shooterTable.put(3.8, 0.62);
-    shooterTable.put(4.7, 0.75);
+    // Flywheel table: distance in meters → flywheel speed in RPS (rotations per second)
+    shooterRPSTable.put(1.3, 18.0);   // ~1080 RPM — close range
+    shooterRPSTable.put(2.1, 24.0);   // ~1440 RPM
+    shooterRPSTable.put(3.0, 30.0);   // ~1800 RPM
+    shooterRPSTable.put(3.8, 36.0);   // ~2160 RPM
+    shooterRPSTable.put(4.7, 42.0);   // ~2520 RPM — long range
 
     NetworkTable calTable = NetworkTableInstance.getDefault().getTable("Shuffleboard/Calibration");
-    ntHoodPos  = calTable.getDoubleTopic("Hood Position").publish();
-    ntLeftVel  = calTable.getDoubleTopic("Shooter L Vel").publish();
-    ntRightVel = calTable.getDoubleTopic("Shooter R Vel").publish();
-    ntReady    = calTable.getBooleanTopic("Ready To Shoot").publish();
+    ntHoodPos   = calTable.getDoubleTopic("Hood Position").publish();
+    ntLeftVel   = calTable.getDoubleTopic("Shooter L Vel (RPS)").publish();
+    ntRightVel  = calTable.getDoubleTopic("Shooter R Vel (RPS)").publish();
+    ntTargetVel = calTable.getDoubleTopic("Shooter Target (RPS)").publish();
+    ntReady     = calTable.getBooleanTopic("Ready To Shoot").publish();
 
     // Initialize servo with correct pulse range for REV SRS (270° range)
     hoodServo = new Servo(Constants.ShootingConstants.HOOD_SERVO);
@@ -113,23 +136,30 @@ public class ShooterSubsystem extends SubsystemBase {
     hoodServo.set(0.0);
   }
 
-  // ========== SHOOTER FLYWHEELS ==========
-  
-  /** Spin up shooter flywheels only (-1.0 to 1.0) */
+  // ========== SHOOTER FLYWHEELS (Closed-Loop Velocity) ==========
+
+  /** Spin up flywheels to a target speed in rotations per second */
+  public void runFlywheelsRPS(double rps) {
+    targetRPS = rps;
+    leftShooterMotor.setControl(flywheelVelocity.withVelocity(rps));
+    rightShooterMotor.setControl(flywheelVelocity.withVelocity(rps));
+  }
+
+  /** Legacy method — run flywheels at a duty cycle (for manual/override use) */
   public void runFlywheels(double speed) {
-    shooterControl.Output = speed;
-    leftShooterMotor.setControl(shooterControl);
-    rightShooterMotor.setControl(shooterControl);
+    targetRPS = speed * 106.0; // Approximate RPS for telemetry
+    leftShooterMotor.set(speed);
+    rightShooterMotor.set(speed);
   }
 
   public void stopFlywheels() {
+    targetRPS = 0.0;
     leftShooterMotor.stopMotor();
     rightShooterMotor.stopMotor();
   }
 
   // ========== FEEDER ==========
-  
-  /** Run feeder to push note into shooter (-1.0 to 1.0) */
+
   public void runFeeder(double speed) {
     feederMotor.set(speed);
   }
@@ -139,8 +169,7 @@ public class ShooterSubsystem extends SubsystemBase {
   }
 
   // ========== INDEXER/SPINNER ==========
-  
-  /** Run indexer to position notes (-1.0 to 1.0) */
+
   public void runIndexer(double speed) {
     indexerMotor.set(speed);
   }
@@ -150,26 +179,36 @@ public class ShooterSubsystem extends SubsystemBase {
   }
 
   // ========== COMBINED OPERATIONS ==========
-  
-  /** Run entire shooting sequence - flywheels, feeder, and indexer */
+
+  /** Run entire shooting sequence — flywheels at duty cycle, feeder, and indexer */
   public void runFullShooter(double speed) {
     runFlywheels(speed);
     runFeeder(speed);
     runIndexer(speed);
   }
 
-  /** Stop all shooter components */
   public void stopAll() {
     stopFlywheels();
     stopFeeder();
     stopIndexer();
   }
 
-  /** Check if flywheels are at target speed using velocity threshold */
+  /**
+   * Check if flywheels are at target speed.
+   * Uses a tolerance of 5% of target RPS for closed-loop,
+   * or falls back to minimum threshold for open-loop.
+   */
   public boolean isReadyToShoot() {
     double leftVel = Math.abs(leftShooterMotor.getVelocity().getValueAsDouble());
     double rightVel = Math.abs(rightShooterMotor.getVelocity().getValueAsDouble());
-    // Flywheels need to be spinning at least 3 rps to be considered ready
+
+    if (targetRPS > 0) {
+      // Closed-loop: within 5% of target
+      double tolerance = targetRPS * 0.05;
+      return Math.abs(leftVel - targetRPS) < tolerance
+          && Math.abs(rightVel - targetRPS) < tolerance;
+    }
+    // Fallback: spinning at least 3 RPS
     return leftVel > 3.0 && rightVel > 3.0;
   }
 
@@ -178,34 +217,27 @@ public class ShooterSubsystem extends SubsystemBase {
   /** Auto-aim hood and flywheels based on distance using interpolation tables */
   public void autoAim(double distanceMeters) {
     double hoodPos = hoodTable.get(distanceMeters);
-    double shooterSpeed = shooterTable.get(distanceMeters);
+    double rps = shooterRPSTable.get(distanceMeters);
     setHoodPosition(hoodPos);
-    runFlywheels(shooterSpeed);
+    runFlywheelsRPS(rps);
   }
 
-  private double currentHoodPosition = 0.0; // Start at bottom
+  private double currentHoodPosition = 0.0;
 
-  /** Set hood position (clamped to HOOD_MIN..HOOD_MAX) */
   public void setHoodPosition(double pos) {
     pos = MathUtil.clamp(pos, HOOD_MIN, HOOD_MAX);
     currentHoodPosition = pos;
     hoodServo.set(pos);
   }
 
-  /** Nudge hood position by a delta amount (positive = up, negative = down) */
   public void nudgeHood(double delta) {
     setHoodPosition(currentHoodPosition + delta);
   }
 
-  /** Get current hood position for calibration readout */
   public double getHoodPosition() {
     return currentHoodPosition;
   }
 
-  /**
-   * Set hood servo raw value — for continuous mode servos:
-   * 0.5 = stop, >0.5 = one direction, <0.5 = other direction
-   */
   public void setHoodSpeed(double value) {
     currentHoodPosition = value;
     hoodServo.set(value);
@@ -215,6 +247,7 @@ public class ShooterSubsystem extends SubsystemBase {
   public void periodic() {
     ntLeftVel.set(leftShooterMotor.getVelocity().getValueAsDouble());
     ntRightVel.set(rightShooterMotor.getVelocity().getValueAsDouble());
+    ntTargetVel.set(targetRPS);
     ntHoodPos.set(currentHoodPosition);
     ntReady.set(isReadyToShoot());
   }

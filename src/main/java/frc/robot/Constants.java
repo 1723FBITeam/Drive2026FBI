@@ -122,15 +122,16 @@ public class Constants {
         // Reserved: IDs 44-50 for future climber additions
     }
 
-    public static final class FeildConstants {
+    public static final class FieldConstants {
 
         public static final double FIELD_LENGTH_METERS = 16.54;
 
-        // Blue alliance hub position
-        public static final Pose2d BLUE_HUB_POSE = new Pose2d(5.33, 4.09, new Rotation2d());
-        // Red alliance hub position (mirrored across field center)
+        // Blue alliance hub — 158.6in (4.03m) from alliance wall to near face of hub
+        // Hub is 47in (1.19m) deep, so center is at 4.03 + 0.595 = 4.625m
+        public static final Pose2d BLUE_HUB_POSE = new Pose2d(4.625, 4.04, new Rotation2d());
+        // Red alliance hub — mirrored across field center
         public static final Pose2d RED_HUB_POSE = new Pose2d(
-            FIELD_LENGTH_METERS - 5.33, 4.09, new Rotation2d());
+            FIELD_LENGTH_METERS - 4.625, 4.04, new Rotation2d());
 
         // TBD
         // public static final Pose2d LEFT_POSE =

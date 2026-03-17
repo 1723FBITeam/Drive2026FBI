@@ -25,7 +25,7 @@ public class IntakeSubsystem extends SubsystemBase {
         new TalonFXS(Constants.IntakeConstants.DEPLOY_RIGHT_MOTOR, Constants.kCANivoreBus);
 
     // Deploy speed — simple fixed speed for now until we find positions
-    private static final double DEPLOY_SPEED = 0.25;
+    private static final double DEPLOY_SPEED = 0.15;
 
     private double deployOutput = 0.0; // current deploy motor output
 
