@@ -14,14 +14,20 @@ import frc.robot.subsystems.ShooterSubsystem;
 import frc.robot.subsystems.TurretSubsystem;
 
 /**
- * Coordinates turret aiming, hood/flywheel auto-aim, and firing.
- * Now includes robot velocity compensation for shoot-on-the-move accuracy.
+ * AutoShootCommand — the "smart shoot" command that coordinates everything:
  *
- * Sequence:
- * 1. Turret aims toward hub using robot pose + velocity compensation
- * 2. Distance is calculated from predicted future position to hub
- * 3. Hood and flywheel speed are set via interpolation tables
- * 4. Once turret is aimed AND flywheels are at speed, feeder + indexer fire
+ * This command runs continuously (it never finishes on its own) and does:
+ *   1. Aims the turret at the hub, compensating for robot movement
+ *   2. Calculates distance to the hub (using predicted future position)
+ *   3. Sets hood angle and flywheel speed based on that distance
+ *   4. Once the turret is aimed AND flywheels are at speed, feeds the note
+ *
+ * The 0.3-second FEED_DELAY prevents feeding before the flywheels are
+ * truly stable (the "ready" check might briefly flicker true).
+ *
+ * This command is used in two places:
+ *   - Y button (toggle on/off during teleop)
+ *   - PathPlanner autos (registered as "AutoShoot" named command)
  */
 public class AutoShootCommand extends Command {
 
@@ -29,9 +35,12 @@ public class AutoShootCommand extends Command {
     private final ShooterSubsystem shooter;
     private final CommandSwerveDrivetrain drivetrain;
 
+    // Wait this long after "ready" before actually feeding (prevents premature shots)
     private static final double FEED_DELAY = 0.3;
-    private double readyTimestamp = 0.0;
-    private boolean feeding = false;
+    private double readyTimestamp = 0.0;  // When we first detected "ready to shoot"
+    private boolean feeding = false;       // Are we currently feeding a note?
+
+    // Which hub to aim at (set in initialize based on alliance color)
     private Pose2d targetPose = Constants.FieldConstants.BLUE_HUB_POSE;
 
     public AutoShootCommand(TurretSubsystem turret, ShooterSubsystem shooter,
@@ -39,14 +48,18 @@ public class AutoShootCommand extends Command {
         this.turret = turret;
         this.shooter = shooter;
         this.drivetrain = drivetrain;
+        // addRequirements tells the command scheduler that this command "owns"
+        // the turret and shooter — no other command can use them at the same time
         addRequirements(turret, shooter);
     }
 
+    /** Called once when the command starts */
     @Override
     public void initialize() {
         feeding = false;
         readyTimestamp = 0.0;
 
+        // Pick the correct hub based on which alliance we're on
         var alliance = DriverStation.getAlliance();
         if (alliance.isPresent() && alliance.get() == Alliance.Red) {
             targetPose = Constants.FieldConstants.RED_HUB_POSE;
@@ -55,16 +68,19 @@ public class AutoShootCommand extends Command {
         }
     }
 
+    /** Called every 20ms while the command is running */
     @Override
     public void execute() {
+        // Get current robot position and velocity from the drivetrain
         Pose2d robotPose = drivetrain.getState().Pose;
         ChassisSpeeds fieldSpeeds = drivetrain.getState().Speeds;
 
-        // 1. Aim turret with velocity compensation for shoot-on-the-move
+        // STEP 1: Aim the turret with velocity compensation
+        // This predicts where the robot will be in 0.2s and aims there instead
         turret.aimAtPoseCompensated(robotPose, targetPose, fieldSpeeds);
 
-        // 2. Calculate distance from predicted future position to hub
-        // Use same latency compensation as turret for consistent behavior
+        // STEP 2: Calculate distance using the same predicted future position
+        // This keeps the distance calculation consistent with where the turret is aiming
         double latencySeconds = 0.2;
         Translation2d futurePosition = robotPose.getTranslation().plus(
             new Translation2d(
@@ -73,33 +89,38 @@ public class AutoShootCommand extends Command {
         double distance = futurePosition.getDistance(targetPose.getTranslation());
         SmartDashboard.putNumber("Auto Shoot Distance", distance);
 
-        // 3. Set hood + flywheel speed based on compensated distance
-        if (distance > 0.5) {
+        // STEP 3: Set hood angle and flywheel speed based on distance
+        // autoAim() uses the interpolation tables in ShooterSubsystem
+        if (distance > 0.5) { // Don't aim if we're basically on top of the hub
             shooter.autoAim(distance);
         }
 
-        // 4. Check if ready to fire
+        // STEP 4: Check if we're ready to fire
         boolean aimed = turret.isAimedAtPose(robotPose, targetPose);
         boolean flywheelsReady = shooter.isReadyToShoot();
         SmartDashboard.putBoolean("Auto Shoot Aimed", aimed);
         SmartDashboard.putBoolean("Auto Shoot Flywheels", flywheelsReady);
 
-        // Start indexer as soon as flywheels are ready (keeps notes moving)
+        // Start the indexer early to keep notes moving toward the feeder
         if (flywheelsReady) {
             shooter.runIndexer(0.3);
         }
 
-        // Only start feeder when turret is also aimed
+        // Only feed when BOTH turret is aimed AND flywheels are at speed
         if (aimed && flywheelsReady) {
+            // Start a timer — we wait FEED_DELAY seconds before actually feeding
+            // This prevents feeding during brief "ready" flickers
             if (readyTimestamp == 0.0) {
                 readyTimestamp = Timer.getFPGATimestamp();
             }
             if (Timer.getFPGATimestamp() - readyTimestamp >= FEED_DELAY) {
+                // We've been ready long enough — fire!
                 shooter.runFeeder(0.7);
                 shooter.runIndexer(0.3);
                 feeding = true;
             }
         } else {
+            // Not ready — reset the timer and stop feeding
             readyTimestamp = 0.0;
             if (feeding) {
                 shooter.stopFeeder();
@@ -109,12 +130,14 @@ public class AutoShootCommand extends Command {
         }
     }
 
+    /** Called when the command ends (either interrupted or cancelled) */
     @Override
     public void end(boolean interrupted) {
         turret.stop();
         shooter.stopAll();
     }
 
+    /** This command runs forever until cancelled (toggle off or auto timeout) */
     @Override
     public boolean isFinished() {
         return false;
