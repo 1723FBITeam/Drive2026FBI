@@ -98,16 +98,19 @@ public class AutoShootCommand extends Command {
         // STEP 4: Check if we're ready to fire
         boolean aimed = turret.isAimedAtPose(robotPose, targetPose);
         boolean flywheelsReady = shooter.isReadyToShoot();
+        boolean turretResetting = turret.isResetting();
         SmartDashboard.putBoolean("Auto Shoot Aimed", aimed);
         SmartDashboard.putBoolean("Auto Shoot Flywheels", flywheelsReady);
+        SmartDashboard.putBoolean("Auto Shoot Turret Reset", turretResetting);
 
         // Start the indexer early to keep notes moving toward the feeder
-        if (flywheelsReady) {
+        // BUT NOT while the turret is resetting (don't want to accidentally fire)
+        if (flywheelsReady && !turretResetting) {
             shooter.runIndexer(0.3);
         }
 
-        // Only feed when BOTH turret is aimed AND flywheels are at speed
-        if (aimed && flywheelsReady) {
+        // Only feed when turret is aimed, flywheels are at speed, AND turret is NOT resetting
+        if (aimed && flywheelsReady && !turretResetting) {
             // Start a timer — we wait FEED_DELAY seconds before actually feeding
             // This prevents feeding during brief "ready" flickers
             if (readyTimestamp == 0.0) {

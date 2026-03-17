@@ -70,6 +70,14 @@ public class ShooterSubsystem extends SubsystemBase {
   // Tracks what speed we asked the flywheels to spin at (for ready-to-shoot check)
   private double targetRPS = 0.0;
 
+  // ===== POWER OFFSET (adjusted by co-pilot controller 2) =====
+  // This offset is added to every flywheel RPS command.
+  // D-pad up/down on controller 2 nudges this value during the match.
+  // Positive = more power (shots go further), Negative = less power (shots fall shorter).
+  private double rpsOffset = 0.0;
+  // Each D-pad press nudges by 1 RPS (~60 RPM)
+  private static final double RPS_NUDGE = 1.0;
+
   // ===== DASHBOARD TELEMETRY =====
   // These publish values to Shuffleboard so we can see what's happening in real time
   private final DoublePublisher ntHoodPos;
@@ -77,6 +85,7 @@ public class ShooterSubsystem extends SubsystemBase {
   private final DoublePublisher ntRightVel;
   private final DoublePublisher ntTargetVel;
   private final BooleanPublisher ntReady;
+  private final DoublePublisher ntRpsOffset;
 
   public ShooterSubsystem() {
     // --- PID + Feedforward gains for flywheel velocity control ---
@@ -139,19 +148,19 @@ public class ShooterSubsystem extends SubsystemBase {
     // FORMAT: table.put(distanceInMeters, value)
 
     // Hood table: distance → servo position (0.0 = flat, 1.0 = max angle up)
-    hoodTable.put(1.3, 0.15);  // Very close — almost flat
-    hoodTable.put(2.1, 0.25);
-    hoodTable.put(3.0, 0.40);  // Mid range
-    hoodTable.put(3.8, 0.55);
-    hoodTable.put(4.7, 0.70);  // Far away — steep angle
+    hoodTable.put(1.3, 0.13);  // Very close — almost flat
+    hoodTable.put(2.1, 0.21);  // Good — don't touch
+    hoodTable.put(3.0, 0.30);  // Was 0.40 — lowered, shots were going too far
+    hoodTable.put(3.8, 0.38);  // Was 0.55 — lowered
+    hoodTable.put(4.7, 0.47);  // Was 0.70 — lowered
 
     // Flywheel speed table: distance → speed in Rotations Per Second (RPS)
     // Higher distance = faster spin needed to reach the hub
-    shooterRPSTable.put(1.3, 18.0);   // ~1080 RPM — close range, gentle shot
-    shooterRPSTable.put(2.1, 24.0);   // ~1440 RPM
-    shooterRPSTable.put(3.0, 30.0);   // ~1800 RPM
-    shooterRPSTable.put(3.8, 36.0);   // ~2160 RPM
-    shooterRPSTable.put(4.7, 42.0);   // ~2520 RPM — long range, fast shot
+    shooterRPSTable.put(1.3, 18.9);   // ~1134 RPM — close range (good, don't touch)
+    shooterRPSTable.put(2.1, 24.6);   // ~1476 RPM — (good, don't touch)
+    shooterRPSTable.put(3.0, 28.0);   // ~1680 RPM — was 30.0, reduced ~7%
+    shooterRPSTable.put(3.8, 32.5);   // ~1950 RPM — was 35.1, reduced ~7%
+    shooterRPSTable.put(4.7, 37.0);   // ~2220 RPM — was 39.9, reduced ~7%
 
     // Set up dashboard publishers for the Calibration tab
     NetworkTable calTable = NetworkTableInstance.getDefault().getTable("Shuffleboard/Calibration");
@@ -160,6 +169,7 @@ public class ShooterSubsystem extends SubsystemBase {
     ntRightVel  = calTable.getDoubleTopic("Shooter R Vel (RPS)").publish();
     ntTargetVel = calTable.getDoubleTopic("Shooter Target (RPS)").publish();
     ntReady     = calTable.getBooleanTopic("Ready To Shoot").publish();
+    ntRpsOffset = calTable.getDoubleTopic("Shooter RPS Offset").publish();
 
     // Initialize the hood servo with the correct pulse width range for REV Smart Robot Servo
     // The pulse range (500-2500 microseconds) defines the servo's full range of motion (270°)
@@ -172,12 +182,15 @@ public class ShooterSubsystem extends SubsystemBase {
 
   /**
    * Spin up flywheels to a target speed using closed-loop velocity control.
+   * The co-pilot's RPS offset is added automatically.
    * @param rps Target speed in Rotations Per Second (e.g., 30.0 = 1800 RPM)
    */
   public void runFlywheelsRPS(double rps) {
-    targetRPS = rps;
-    leftShooterMotor.setControl(flywheelVelocity.withVelocity(rps));
-    rightShooterMotor.setControl(flywheelVelocity.withVelocity(rps));
+    double adjustedRPS = rps + rpsOffset;
+    if (adjustedRPS < 0) adjustedRPS = 0; // Don't spin backwards
+    targetRPS = adjustedRPS;
+    leftShooterMotor.setControl(flywheelVelocity.withVelocity(adjustedRPS));
+    rightShooterMotor.setControl(flywheelVelocity.withVelocity(adjustedRPS));
   }
 
   /**
@@ -243,6 +256,26 @@ public class ShooterSubsystem extends SubsystemBase {
     stopFlywheels();
     stopFeeder();
     stopIndexer();
+  }
+
+  // ==================== CO-PILOT POWER OFFSET ====================
+
+  /** Nudge flywheel power UP (+1 RPS). Called by co-pilot D-pad up. */
+  public void nudgePowerUp() {
+    rpsOffset += RPS_NUDGE;
+    System.out.println(">>> Shooter RPS offset: " + String.format("%+.1f", rpsOffset) + " RPS <<<");
+  }
+
+  /** Nudge flywheel power DOWN (-1 RPS). Called by co-pilot D-pad down. */
+  public void nudgePowerDown() {
+    rpsOffset -= RPS_NUDGE;
+    System.out.println(">>> Shooter RPS offset: " + String.format("%+.1f", rpsOffset) + " RPS <<<");
+  }
+
+  /** Reset the power offset back to zero. */
+  public void resetPowerOffset() {
+    rpsOffset = 0.0;
+    System.out.println(">>> Shooter RPS offset RESET to 0 <<<");
   }
 
   /**
@@ -322,5 +355,6 @@ public class ShooterSubsystem extends SubsystemBase {
     ntTargetVel.set(targetRPS);
     ntHoodPos.set(currentHoodPosition);
     ntReady.set(isReadyToShoot());
+    ntRpsOffset.set(rpsOffset);
   }
 }

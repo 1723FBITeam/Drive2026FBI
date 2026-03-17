@@ -96,8 +96,11 @@ public class RobotContainer {
     private final SlewRateLimiter yLimiter = new SlewRateLimiter(3.0);
     private final SlewRateLimiter rotationLimiter = new SlewRateLimiter(3.0);
 
-    // Xbox controller on USB port 0
+    // Xbox controller on USB port 0 (driver)
     private final CommandXboxController controller = new CommandXboxController(0);
+
+    // Xbox controller on USB port 1 (co-pilot — live-tunes turret aim and shooter power)
+    private final CommandXboxController copilot = new CommandXboxController(1);
 
     // Auto chooser — dropdown on the dashboard to pick autonomous routine
     private final SendableChooser<Command> autoChooser;
@@ -246,6 +249,42 @@ public class RobotContainer {
         // (robot faces drivers at startup = 180 degrees from "forward")
         controller.back()
             .onTrue(drivetrain.runOnce(() -> drivetrain.seedFieldCentric(Rotation2d.k180deg)));
+
+        // ===================================================================
+        //                  CO-PILOT CONTROLLER 2 BINDINGS
+        // ===================================================================
+        // The co-pilot can live-tune turret aim and shooter power during a match.
+        // These offsets persist until reset — they shift ALL auto-aim calculations.
+        //
+        // D-pad Left:  Nudge turret aim left (CCW) by 0.5 degrees
+        // D-pad Right: Nudge turret aim right (CW) by 0.5 degrees
+        // D-pad Up:    Nudge shooter power UP by 1 RPS (~60 RPM)
+        // D-pad Down:  Nudge shooter power DOWN by 1 RPS (~60 RPM)
+        // Back button: Reset BOTH offsets to zero
+        // ===================================================================
+
+        // D-pad Left — nudge turret aim left (if shots consistently go right)
+        copilot.povLeft()
+            .onTrue(new InstantCommand(() -> turretSubsystem.nudgeAimLeft()));
+
+        // D-pad Right — nudge turret aim right (if shots consistently go left)
+        copilot.povRight()
+            .onTrue(new InstantCommand(() -> turretSubsystem.nudgeAimRight()));
+
+        // D-pad Up — increase shooter power (if shots are falling short)
+        copilot.povUp()
+            .onTrue(new InstantCommand(() -> shooterSubsystem.nudgePowerUp()));
+
+        // D-pad Down — decrease shooter power (if shots are going too far)
+        copilot.povDown()
+            .onTrue(new InstantCommand(() -> shooterSubsystem.nudgePowerDown()));
+
+        // Back button — reset both offsets to zero (fresh start)
+        copilot.back()
+            .onTrue(new InstantCommand(() -> {
+                turretSubsystem.resetAimOffset();
+                shooterSubsystem.resetPowerOffset();
+            }));
 
         // ===== IDLE BEHAVIOR =====
         // When the robot is disabled, set swerve modules to idle (no power)

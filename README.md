@@ -69,6 +69,12 @@ src/main/java/frc/robot/
 - This lets the robot drive in any direction while facing any direction
 - "Field-centric" means pushing the stick forward always drives away from the driver, no matter which way the robot faces
 
+### Turret Range and Reset
+- The turret can rotate 420° counterclockwise and 245° clockwise from center (665° total travel)
+- Because the range exceeds 360°, any target angle has two equivalent positions — the code picks whichever is in bounds and closest
+- When the turret needs to wrap around 360° to reach a target (a "reset"), it moves slower to avoid jerking
+- The shooter will NOT fire during a turret reset — it waits until the turret finishes and is aimed again
+
 ### Closed-Loop Control
 - "Open loop" = set motor to X% power and hope for the best
 - "Closed loop" = tell the motor "go THIS fast" or "go to THIS position" and it adjusts itself using PID
