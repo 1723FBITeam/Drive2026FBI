@@ -25,7 +25,6 @@ import edu.wpi.first.wpilibj2.command.Commands;
 import edu.wpi.first.wpilibj2.command.InstantCommand;
 import edu.wpi.first.wpilibj2.command.RunCommand;
 import edu.wpi.first.wpilibj2.command.SequentialCommandGroup;
-import edu.wpi.first.wpilibj2.command.StartEndCommand;
 import edu.wpi.first.wpilibj2.command.WaitCommand;
 import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
 import edu.wpi.first.wpilibj2.command.button.RobotModeTriggers;
@@ -108,7 +107,11 @@ public class RobotContainer {
     // Calibration dashboard entries
     private edu.wpi.first.networktables.GenericEntry calRobotX;
     private edu.wpi.first.networktables.GenericEntry calRobotY;
+    private edu.wpi.first.networktables.GenericEntry calRobotHeading;
     private edu.wpi.first.networktables.GenericEntry calDistToHub;
+    private edu.wpi.first.networktables.GenericEntry calTargetX;
+    private edu.wpi.first.networktables.GenericEntry calTargetY;
+    private edu.wpi.first.networktables.GenericEntry calAlliance;
     private edu.wpi.first.networktables.GenericEntry calLastDist;
     private edu.wpi.first.networktables.GenericEntry calLastHood;
     private edu.wpi.first.networktables.GenericEntry calShotNum;
@@ -152,61 +155,38 @@ public class RobotContainer {
         var calTab = edu.wpi.first.wpilibj.shuffleboard.Shuffleboard.getTab("Calibration");
         calRobotX    = calTab.add("Robot X", 0.0).withPosition(2, 1).withSize(1, 1).getEntry();
         calRobotY    = calTab.add("Robot Y", 0.0).withPosition(3, 1).withSize(1, 1).getEntry();
+        calRobotHeading = calTab.add("Robot Heading", 0.0).withPosition(2, 2).withSize(1, 1).getEntry();
         calDistToHub = calTab.add("Dist to Hub", 0.0).withPosition(4, 1).withSize(1, 1).getEntry();
+        calTargetX   = calTab.add("Target X", 0.0).withPosition(4, 2).withSize(1, 1).getEntry();
+        calTargetY   = calTab.add("Target Y", 0.0).withPosition(5, 2).withSize(1, 1).getEntry();
+        calAlliance  = calTab.add("Alliance", "???").withPosition(3, 2).withSize(1, 1).getEntry();
         calLastDist  = calTab.add("Last Shot Dist", 0.0).withPosition(5, 1).withSize(1, 1).getEntry();
         calLastHood  = calTab.add("Last Shot Hood", 0.0).withPosition(6, 1).withSize(1, 1).getEntry();
         calShotNum   = calTab.add("Shot #", 0.0).withPosition(7, 1).withSize(1, 1).getEntry();
 
         // ===================================================================
-        //                    CONTROLLER BUTTON BINDINGS
+        //                 DRIVER CONTROLLER (USB port 0)
         // ===================================================================
-        // Each binding connects a button/trigger to a robot action.
-        // See the README for the full controller layout diagram.
+        // The driver only has 4 buttons — drive, shoot, intake, jostle, reset.
+        // Everything else is on the co-pilot controller.
         // ===================================================================
 
-        // LEFT TRIGGER — manually rotate turret left
-        // Pressure-sensitive: harder press = faster rotation
-        controller.leftTrigger(0.05).whileTrue(Commands.run(
-            () -> turretSubsystem.rotate(-controller.getLeftTriggerAxis() * 0.5),
-            turretSubsystem).finallyDo(() -> turretSubsystem.stop()));
-
-        // RIGHT TRIGGER — manually rotate turret right
-        controller.rightTrigger(0.05).whileTrue(Commands.run(
-            () -> turretSubsystem.rotate(controller.getRightTriggerAxis() * 0.5),
-            turretSubsystem).finallyDo(() -> turretSubsystem.stop()));
-
-        // LEFT BUMPER — deploy intake outward (hold to run, release to stop)
-        controller.leftBumper()
-            .whileTrue(new StartEndCommand(
-                () -> intakeSubsystem.deployOut(),
-                () -> intakeSubsystem.stopDeploy(),
-                intakeSubsystem));
-
-        // RIGHT BUMPER — retract intake inward (hold to run, release to stop)
-        controller.rightBumper()
-            .whileTrue(new StartEndCommand(
-                () -> intakeSubsystem.deployIn(),
-                () -> intakeSubsystem.stopDeploy(),
-                intakeSubsystem));
-
-        // Y BUTTON — toggle auto-shoot (aims turret, spins flywheels, feeds when ready)
-        // Press once to start, press again to stop
+        // Y BUTTON — toggle auto-shoot on/off
+        // Press once: aims turret, spins flywheels, feeds when ready
+        // Press again: stops everything
         controller.y()
             .toggleOnTrue(new AutoShootCommand(turretSubsystem, shooterSubsystem, drivetrain, this::getSmartTarget));
 
-        // X BUTTON — toggle intake sequence
-        // First press: deploys intake out briefly, then runs rollers continuously
-        // Second press: retracts intake and stops rollers
+        // X BUTTON — toggle intake on/off
+        // Press once: deploys intake out, starts rollers
+        // Press again: retracts intake, stops rollers
         controller.x()
             .toggleOnTrue(new SequentialCommandGroup(
-                // Brief pulse to deploy out (gravity + hard stops do the rest)
                 new InstantCommand(() -> intakeSubsystem.deployOut(), intakeSubsystem),
                 new WaitCommand(0.3),
                 new InstantCommand(() -> intakeSubsystem.stopDeploy()),
-                // Run intake rollers until toggled off
                 new RunCommand(() -> intakeSubsystem.runIntake(0.5), intakeSubsystem)
             ).finallyDo(() -> {
-                // When toggled off: retract and stop everything
                 intakeSubsystem.deployIn();
                 intakeSubsystem.stopIntake();
                 new WaitCommand(0.3).andThen(
@@ -214,21 +194,120 @@ public class RobotContainer {
                 ).schedule();
             }));
 
-        // A BUTTON — nudge hood servo UP (hold to keep nudging)
+        // A BUTTON — jostle intake to unstick balls
+        // Quick low-power in/out pulse sequence, won't stress motors
         controller.a()
-            .whileTrue(Commands.run(() -> shooterSubsystem.nudgeHood(0.005)));
+            .onTrue(intakeSubsystem.jostleCommand());
 
-        // B BUTTON — nudge hood servo DOWN (hold to keep nudging)
-        controller.b()
-            .whileTrue(Commands.run(() -> shooterSubsystem.nudgeHood(-0.005)));
+        // BACK BUTTON — reset field-centric heading
+        // Determines the correct heading based on alliance color.
+        // Blue alliance: robot faces red wall at startup = 180° in blue-origin coords
+        // Red alliance: robot faces blue wall at startup = 0° in blue-origin coords
+        controller.back()
+            .onTrue(drivetrain.runOnce(() -> {
+                var alliance = DriverStation.getAlliance();
+                boolean isRed = alliance.isPresent() && alliance.get() == Alliance.Red;
+                drivetrain.seedFieldCentric(isRed ? Rotation2d.kZero : Rotation2d.k180deg);
+            }));
 
-        // START BUTTON — toggle shoot sequence (same as Y, alternate binding)
-        controller.start()
+        // ===================================================================
+        //                 CO-PILOT CONTROLLER (USB port 1)
+        // ===================================================================
+        // The co-pilot handles shooting, intake, tuning, calibration,
+        // and manual overrides so the driver can focus on driving.
+        //
+        // FACE BUTTONS:
+        //   Y = toggle auto-shoot on/off
+        //   X = toggle intake on/off
+        //   A = jostle intake (unstick balls)
+        //   B = emergency stop all shooter motors
+        //
+        // BUMPERS + TRIGGERS (manual overrides):
+        //   Left Trigger  = manually rotate turret left (pressure = speed)
+        //   Right Trigger = manually rotate turret right (pressure = speed)
+        //   Left Bumper   = nudge hood servo up (hold)
+        //   Right Bumper  = nudge hood servo down (hold)
+        //
+        // D-PAD (live tuning offsets):
+        //   Left/Right = nudge turret aim ±0.5 degrees
+        //   Up/Down    = nudge shooter power ±1 RPS
+        //
+        // MENU BUTTONS:
+        //   Start = save shot calibration data point
+        //   Back  = reset all offsets to zero
+        // ===================================================================
+
+        // --- Face buttons ---
+
+        // Y — toggle auto-shoot (co-pilot can trigger shooting for the driver)
+        copilot.y()
             .toggleOnTrue(new AutoShootCommand(turretSubsystem, shooterSubsystem, drivetrain, this::getSmartTarget));
 
-        // D-PAD UP — save current shot data for calibration
-        // Prints distance + hood position to console and updates dashboard
-        controller.povUp()
+        // X — toggle intake on/off
+        copilot.x()
+            .toggleOnTrue(new SequentialCommandGroup(
+                new InstantCommand(() -> intakeSubsystem.deployOut(), intakeSubsystem),
+                new WaitCommand(0.3),
+                new InstantCommand(() -> intakeSubsystem.stopDeploy()),
+                new RunCommand(() -> intakeSubsystem.runIntake(0.5), intakeSubsystem)
+            ).finallyDo(() -> {
+                intakeSubsystem.deployIn();
+                intakeSubsystem.stopIntake();
+                new WaitCommand(0.3).andThen(
+                    new InstantCommand(() -> intakeSubsystem.stopDeploy())
+                ).schedule();
+            }));
+
+        // A — jostle intake (unstick balls)
+        copilot.a()
+            .onTrue(intakeSubsystem.jostleCommand());
+
+        // B — emergency stop all shooter motors
+        copilot.b()
+            .onTrue(new InstantCommand(() -> shooterSubsystem.stopAll()));
+
+        // --- Bumpers + Triggers (manual overrides) ---
+
+        // Left Trigger — manually rotate turret CCW/left (pressure-sensitive)
+        copilot.leftTrigger(0.05).whileTrue(Commands.run(
+            () -> turretSubsystem.rotate(copilot.getLeftTriggerAxis() * 0.5),
+            turretSubsystem).finallyDo(() -> turretSubsystem.stop()));
+
+        // Right Trigger — manually rotate turret CW/right (pressure-sensitive)
+        copilot.rightTrigger(0.05).whileTrue(Commands.run(
+            () -> turretSubsystem.rotate(-copilot.getRightTriggerAxis() * 0.5),
+            turretSubsystem).finallyDo(() -> turretSubsystem.stop()));
+
+        // Left Bumper — nudge hood servo UP (hold)
+        copilot.leftBumper()
+            .whileTrue(Commands.run(() -> shooterSubsystem.nudgeHood(0.005)));
+
+        // Right Bumper — nudge hood servo DOWN (hold)
+        copilot.rightBumper()
+            .whileTrue(Commands.run(() -> shooterSubsystem.nudgeHood(-0.005)));
+
+        // --- D-pad (live tuning offsets) ---
+
+        // D-pad Left — nudge turret aim left (CCW) by 0.5 degrees
+        copilot.povLeft()
+            .onTrue(new InstantCommand(() -> turretSubsystem.nudgeAimLeft()));
+
+        // D-pad Right — nudge turret aim right (CW) by 0.5 degrees
+        copilot.povRight()
+            .onTrue(new InstantCommand(() -> turretSubsystem.nudgeAimRight()));
+
+        // D-pad Up — increase shooter power by 1 RPS
+        copilot.povUp()
+            .onTrue(new InstantCommand(() -> shooterSubsystem.nudgePowerUp()));
+
+        // D-pad Down — decrease shooter power by 1 RPS
+        copilot.povDown()
+            .onTrue(new InstantCommand(() -> shooterSubsystem.nudgePowerDown()));
+
+        // --- Menu buttons ---
+
+        // Start — save shot calibration data point
+        copilot.start()
             .onTrue(new InstantCommand(() -> {
                 Pose2d pose = drivetrain.getState().Pose;
                 double dist = pose.getTranslation().getDistance(
@@ -244,42 +323,7 @@ public class RobotContainer {
                 calShotNum.setDouble(calShotCount);
             }));
 
-        // BACK BUTTON — reset field-centric heading
-        // Tells the robot "I'm currently facing 180 degrees from operator forward"
-        // (robot faces drivers at startup = 180 degrees from "forward")
-        controller.back()
-            .onTrue(drivetrain.runOnce(() -> drivetrain.seedFieldCentric(Rotation2d.k180deg)));
-
-        // ===================================================================
-        //                  CO-PILOT CONTROLLER 2 BINDINGS
-        // ===================================================================
-        // The co-pilot can live-tune turret aim and shooter power during a match.
-        // These offsets persist until reset — they shift ALL auto-aim calculations.
-        //
-        // D-pad Left:  Nudge turret aim left (CCW) by 0.5 degrees
-        // D-pad Right: Nudge turret aim right (CW) by 0.5 degrees
-        // D-pad Up:    Nudge shooter power UP by 1 RPS (~60 RPM)
-        // D-pad Down:  Nudge shooter power DOWN by 1 RPS (~60 RPM)
-        // Back button: Reset BOTH offsets to zero
-        // ===================================================================
-
-        // D-pad Left — nudge turret aim left (if shots consistently go right)
-        copilot.povLeft()
-            .onTrue(new InstantCommand(() -> turretSubsystem.nudgeAimLeft()));
-
-        // D-pad Right — nudge turret aim right (if shots consistently go left)
-        copilot.povRight()
-            .onTrue(new InstantCommand(() -> turretSubsystem.nudgeAimRight()));
-
-        // D-pad Up — increase shooter power (if shots are falling short)
-        copilot.povUp()
-            .onTrue(new InstantCommand(() -> shooterSubsystem.nudgePowerUp()));
-
-        // D-pad Down — decrease shooter power (if shots are going too far)
-        copilot.povDown()
-            .onTrue(new InstantCommand(() -> shooterSubsystem.nudgePowerDown()));
-
-        // Back button — reset both offsets to zero (fresh start)
+        // Back — reset both offsets to zero
         copilot.back()
             .onTrue(new InstantCommand(() -> {
                 turretSubsystem.resetAimOffset();
@@ -296,15 +340,16 @@ public class RobotContainer {
         // Register telemetry so drivetrain data shows up on the dashboard
         drivetrain.registerTelemetry(logger::telemeterize);
 
-        // Set initial heading — robot starts facing the drivers (180 degrees from "forward")
-        drivetrain.seedFieldCentric(Rotation2d.k180deg);
+        // Set initial heading based on alliance color
+        // Blue: facing red wall = 180°, Red: facing blue wall = 0° (in blue-origin coords)
+        var alliance = DriverStation.getAlliance();
+        boolean isRed = alliance.isPresent() && alliance.get() == Alliance.Red;
+        drivetrain.seedFieldCentric(isRed ? Rotation2d.kZero : Rotation2d.k180deg);
 
         // ===== DEFAULT COMMANDS =====
         // Default commands run whenever no other command is using that subsystem.
 
         // Turret default: continuously auto-aim at the hub
-        // When the driver presses a trigger to manually rotate, this gets interrupted,
-        // and resumes when they let go.
         turretSubsystem.setDefaultCommand(new RunCommand(
             () -> turretSubsystem.aimAtPose(drivetrain.getState().Pose, getSmartTarget()),
             turretSubsystem));
@@ -325,83 +370,46 @@ public class RobotContainer {
     }
 
     /**
-     * Zone-aware target selection. Returns the best target based on where the
-     * robot is on the field:
+     * Returns the target to aim at based on alliance color.
      *
-     *   OWN ALLIANCE ZONE → aim at our hub (normal shooting)
-     *   NEAR TRENCH       → flatten hood, don't shoot (just pass through)
-     *   NEUTRAL ZONE / OPPONENT'S SIDE → aim at whichever corner target is closer
+     * SIMPLIFIED FOR TESTING — always aims at our hub.
+     * Zone-based targeting (corners, trench hood flatten) is disabled
+     * until basic aiming is confirmed working.
      *
-     * Also flattens the hood when near the trench boundary so we fit underneath.
+     * TODO: Re-enable zone logic once turret aiming is verified.
      */
     public Pose2d getSmartTarget() {
-        Pose2d robotPose = drivetrain.getState().Pose;
-        double robotX = robotPose.getX();
-
         var alliance = DriverStation.getAlliance();
         boolean isRed = alliance.isPresent() && alliance.get() == Alliance.Red;
 
-        // Determine zone boundaries relative to our alliance
-        double ownZoneEnd;    // X where our alliance zone ends (toward neutral zone)
-        double oppZoneStart;  // X where opponent's alliance zone starts
-
-        if (isRed) {
-            // Red alliance: our zone is X > 12.51m, opponent zone is X < 4.03m
-            ownZoneEnd = Constants.FieldConstants.RED_ZONE_START;
-            oppZoneStart = Constants.FieldConstants.BLUE_ZONE_END;
-        } else {
-            // Blue alliance: our zone is X < 4.03m, opponent zone is X > 12.51m
-            ownZoneEnd = Constants.FieldConstants.BLUE_ZONE_END;
-            oppZoneStart = Constants.FieldConstants.RED_ZONE_START;
+        // Safety: if alliance is not set, try to guess from robot position.
+        // If we're on the red half of the field (X > 8.27), assume red.
+        if (!alliance.isPresent()) {
+            double robotX = drivetrain.getState().Pose.getX();
+            isRed = robotX > (Constants.FieldConstants.FIELD_LENGTH_METERS / 2.0);
         }
 
-        // Check if we're near the trench (at the boundary between zones)
-        double trenchBuffer = Constants.FieldConstants.TRENCH_BUFFER;
-        boolean nearOwnTrench;
-        boolean inOwnZone;
-
-        if (isRed) {
-            nearOwnTrench = robotX < ownZoneEnd + trenchBuffer && robotX > ownZoneEnd - trenchBuffer;
-            inOwnZone = robotX > ownZoneEnd;
-        } else {
-            nearOwnTrench = robotX > ownZoneEnd - trenchBuffer && robotX < ownZoneEnd + trenchBuffer;
-            inOwnZone = robotX < ownZoneEnd;
-        }
-
-        // Near trench → flatten hood to fit under (22.25in clearance)
-        if (nearOwnTrench) {
-            shooterSubsystem.setHoodPosition(0.0);
-        }
-
-        // In our own alliance zone → aim at our hub
-        if (inOwnZone && !nearOwnTrench) {
-            return isRed ? Constants.FieldConstants.RED_HUB_POSE
-                         : Constants.FieldConstants.BLUE_HUB_POSE;
-        }
-
-        // In neutral zone or opponent's side → aim at closest corner target
-        // Also flatten hood to go under trench on the way there
-        Pose2d cornerLeft, cornerRight;
-        if (isRed) {
-            cornerLeft = Constants.FieldConstants.RED_CORNER_LEFT;
-            cornerRight = Constants.FieldConstants.RED_CORNER_RIGHT;
-        } else {
-            cornerLeft = Constants.FieldConstants.BLUE_CORNER_LEFT;
-            cornerRight = Constants.FieldConstants.BLUE_CORNER_RIGHT;
-        }
-
-        // Pick whichever corner is closer to the robot's current Y position
-        double distToLeft = robotPose.getTranslation().getDistance(cornerLeft.getTranslation());
-        double distToRight = robotPose.getTranslation().getDistance(cornerRight.getTranslation());
-        return (distToLeft < distToRight) ? cornerLeft : cornerRight;
+        return isRed ? Constants.FieldConstants.RED_HUB_POSE
+                     : Constants.FieldConstants.BLUE_HUB_POSE;
     }
+
 
     /** Called from Robot.robotPeriodic() — updates calibration values on the dashboard */
     public void updateCalibrationTelemetry() {
         Pose2d pose = drivetrain.getState().Pose;
-        double dist = pose.getTranslation().getDistance(getSmartTarget().getTranslation());
+        Pose2d target = getSmartTarget();
+        double dist = pose.getTranslation().getDistance(target.getTranslation());
+
         calRobotX.setDouble(pose.getX());
         calRobotY.setDouble(pose.getY());
+        calRobotHeading.setDouble(pose.getRotation().getDegrees());
         calDistToHub.setDouble(dist);
+        calTargetX.setDouble(target.getX());
+        calTargetY.setDouble(target.getY());
+
+        var alliance = DriverStation.getAlliance();
+        calAlliance.setString(alliance.isPresent()
+            ? (alliance.get() == Alliance.Red ? "RED" : "BLUE")
+            : "NOT SET");
     }
 }

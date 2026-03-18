@@ -59,6 +59,14 @@ public class TurretSubsystem extends SubsystemBase {
     // 11.515 motor rotations = 1 full turret rotation (360 degrees)
     private static final double TURRET_GEAR_RATIO = 11.515;
 
+    // ===== TURRET PIVOT OFFSET FROM ROBOT CENTER =====
+    // The turret pivot is NOT at the center of the robot.
+    // It is 4.5 inches back and 4 inches to the left (from driver's perspective).
+    // In robot coordinates: forward is +X, left is +Y
+    //   Back 4.5in = -0.1143m in X
+    //   Left 4in   = +0.1016m in Y (left is positive in WPILib robot coords)
+    private static final Translation2d TURRET_OFFSET = new Translation2d(-0.1143, 0.1016);
+
     // ===== TURRET TRAVEL LIMITS =====
     // CCW (positive direction, viewed from above): 420 degrees = 420/360 = 1.1667 rotations
     // CW (negative direction, viewed from above): 245 degrees = 245/360 = 0.6806 rotations
@@ -78,6 +86,9 @@ public class TurretSubsystem extends SubsystemBase {
 
     // Tracks whether the turret is currently doing a long reset move
     private boolean isResetting = false;
+
+    // Debug print counter (prints every 50 loops ≈ 1 second)
+    private int debugCounter = 0;
 
     // ===== AIM OFFSET (adjusted by co-pilot controller 2) =====
     // This offset is added to every aim calculation, in mechanism rotations.
@@ -104,6 +115,11 @@ public class TurretSubsystem extends SubsystemBase {
     private final DoublePublisher ntError;
     private final BooleanPublisher ntResetting;
     private final DoublePublisher ntAimOffset;
+    private final DoublePublisher ntFieldAngle;
+    private final DoublePublisher ntRelativeAngle;
+    private final DoublePublisher ntTurretFieldX;
+    private final DoublePublisher ntTurretFieldY;
+    private final DoublePublisher ntBaseMechRot;
 
     public TurretSubsystem() {
         // PID + Feedforward gains for position control
@@ -153,6 +169,11 @@ public class TurretSubsystem extends SubsystemBase {
         ntError        = calTable.getDoubleTopic("Turret Error Deg").publish();
         ntResetting    = calTable.getBooleanTopic("Turret Resetting").publish();
         ntAimOffset    = calTable.getDoubleTopic("Turret Aim Offset (deg)").publish();
+        ntFieldAngle   = calTable.getDoubleTopic("Turret Field Angle").publish();
+        ntRelativeAngle = calTable.getDoubleTopic("Turret Relative Angle").publish();
+        ntTurretFieldX = calTable.getDoubleTopic("Turret Pivot X").publish();
+        ntTurretFieldY = calTable.getDoubleTopic("Turret Pivot Y").publish();
+        ntBaseMechRot  = calTable.getDoubleTopic("Turret Base MechRot").publish();
     }
 
     /** Manually rotate the turret (trigger buttons). Soft limits still enforced. */
@@ -213,15 +234,38 @@ public class TurretSubsystem extends SubsystemBase {
      *   6. Pick the best in-bounds candidate closest to current position
      */
     private double calculateTargetMechanismRotations(Pose2d robotPose, Pose2d targetPose) {
+        // Account for turret pivot being offset from robot center
+        // (4.5" back, 4" left from driver's perspective)
+        Translation2d turretFieldPos = robotPose.getTranslation()
+            .plus(TURRET_OFFSET.rotateBy(robotPose.getRotation()));
+
         Rotation2d fieldAngle = targetPose.getTranslation()
-            .minus(robotPose.getTranslation())
+            .minus(turretFieldPos)
             .getAngle();
 
         Rotation2d relativeAngle = fieldAngle.minus(robotPose.getRotation());
+
+        // Turret zero = REAR of robot (confirmed). Subtract 180°.
         Rotation2d turretAngle = relativeAngle.minus(Rotation2d.k180deg);
 
-        // Base candidate from -0.5 to +0.5 (Rotation2d gives -180 to +180 degrees)
+        // Debug telemetry
+        ntFieldAngle.set(fieldAngle.getDegrees());
+        ntRelativeAngle.set(relativeAngle.getDegrees());
+        ntTurretFieldX.set(turretFieldPos.getX());
+        ntTurretFieldY.set(turretFieldPos.getY());
+
         double base = turretAngle.getDegrees() / 360.0;
+        ntBaseMechRot.set(base);
+
+        debugCounter++;
+        if (debugCounter % 50 == 0) {
+            System.out.println(String.format(
+                "AIM: field=%.1f° rel=%.1f° turret=%.1f° base=%.4f rot | pivot=(%.2f,%.2f) target=(%.2f,%.2f) heading=%.1f°",
+                fieldAngle.getDegrees(), relativeAngle.getDegrees(), turretAngle.getDegrees(), base,
+                turretFieldPos.getX(), turretFieldPos.getY(),
+                targetPose.getX(), targetPose.getY(),
+                robotPose.getRotation().getDegrees()));
+        }
 
         // Generate the two equivalent positions (360 degrees apart)
         double candidateA = base;
@@ -254,6 +298,7 @@ public class TurretSubsystem extends SubsystemBase {
      * This compensates for note travel time when shooting on the move.
      */
     private double calculateTargetWithCompensation(Pose2d robotPose, Pose2d targetPose, ChassisSpeeds fieldSpeeds) {
+        // SIMPLIFIED: no turret pivot offset, just predict future robot center
         double latencySeconds = 0.2;
         Translation2d futurePosition = robotPose.getTranslation().plus(
             new Translation2d(
@@ -300,13 +345,29 @@ public class TurretSubsystem extends SubsystemBase {
     /** Aim turret at a target (no velocity compensation — good when stationary). */
     public void aimAtPose(Pose2d robotPose, Pose2d targetPose) {
         double targetMechRot = calculateTargetMechanismRotations(robotPose, targetPose);
-        goToPosition(targetMechRot + aimOffsetRotations);
+        double finalTarget = targetMechRot + aimOffsetRotations;
+        double currentPos = turretMotor.getPosition().getValueAsDouble();
+
+        // Small deadband: if we're already within ~2° of target, don't update.
+        // This prevents constant micro-corrections from vision pose noise
+        // that make the turret "hunt" back and forth when the robot is stationary.
+        if (Math.abs(currentPos - finalTarget) < 0.006) { // 0.006 rot ≈ 2.2°
+            return;
+        }
+        goToPosition(finalTarget);
     }
 
     /** Aim turret WITH velocity compensation — use when shooting on the move. */
     public void aimAtPoseCompensated(Pose2d robotPose, Pose2d targetPose, ChassisSpeeds fieldSpeeds) {
         double targetMechRot = calculateTargetWithCompensation(robotPose, targetPose, fieldSpeeds);
-        goToPosition(targetMechRot + aimOffsetRotations);
+        double finalTarget = targetMechRot + aimOffsetRotations;
+        double currentPos = turretMotor.getPosition().getValueAsDouble();
+
+        // Same deadband as aimAtPose — prevents hunting from vision noise
+        if (Math.abs(currentPos - finalTarget) < 0.006) {
+            return;
+        }
+        goToPosition(finalTarget);
     }
 
     /** Returns true when turret is aimed within ~1.5 degrees of target AND not resetting. */
