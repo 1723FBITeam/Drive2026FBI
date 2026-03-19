@@ -245,7 +245,7 @@ public class ShooterSubsystem extends SubsystemBase {
    */
   public void runFullShooter(double speed) {
     runFlywheels(speed);
-    runFeeder(7);
+    runFeeder(0.8);
     runIndexer(speed);
   }
 
