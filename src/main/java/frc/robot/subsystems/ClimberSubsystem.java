@@ -40,14 +40,18 @@ public class ClimberSubsystem extends SubsystemBase {
     private final Servo elevatorServo = new Servo(Constants.ClimberConstants.ELEVATOR_SERVO);
 
     // ==================== ELEVATOR PID (position control) ====================
-    private final PIDController elevatorPID = new PIDController(0.8, 0.0, 0.04);
+    // Very conservative PID: feedforward does the heavy lifting, PID just gently corrects
+    private final PIDController elevatorPID = new PIDController(0.1, 0.0, 0.0);
     private double elevatorTargetPosition = 0.0; // rotations
     private boolean elevatorPositionControlEnabled = false;
     private static final double ELEVATOR_TOLERANCE = 0.01; // rotations
 
+    // Runtime tuning defaults (can be changed on Shuffleboard)
+    private static final double DEFAULT_MAX_OUTPUT = 0.25;  // max percent output from PID (reduced for safe testing)
+
      private Map<Integer, Double> targetPositions = Map.of(
-            0, 2.2,
-            1, 23.4);
+            0, 0.0,
+            1, 29.0);
 
     // Last PID loop telemetry (recorded each periodic while PID is active)
     private double lastPidOutput = 0.0;
@@ -88,6 +92,16 @@ public class ClimberSubsystem extends SubsystemBase {
         MotorOutputConfigs elevatorConfigs = new MotorOutputConfigs();
         elevatorConfigs.Inverted = InvertedValue.CounterClockwise_Positive;
         elevatorMotor.getConfigurator().apply(elevatorConfigs);
+
+        // Configure PID tolerance so we can use atSetpoint() if needed
+        elevatorPID.setTolerance(ELEVATOR_TOLERANCE);
+
+        // Put default tunables on the dashboard so testers can adjust live
+        SmartDashboard.putNumber("Climber Max Output", DEFAULT_MAX_OUTPUT);
+        SmartDashboard.putNumber("Climber FF", 0.06);
+        SmartDashboard.putNumber("Climber Output Smoothing (alpha)", 0.25);
+        SmartDashboard.putNumber("Climber Hold Settle Seconds", 0.15);
+        SmartDashboard.putBoolean("Climber Test Mode", false);
     }
 
     // ==================== CLIMB MOTORS ====================
@@ -180,25 +194,10 @@ public class ClimberSubsystem extends SubsystemBase {
     public void enableElevatorPositionControl(double targetRotations) {
         elevatorTargetPosition = targetRotations;
         elevatorPID.reset();
+        // Prevent integrator windup during large moves
+        elevatorPID.setIntegratorRange(-0.2, 0.2);
         elevatorPositionControlEnabled = true;
         System.out.println(">>> Climber: position control ENABLED -> target=" + String.format("%.3f", targetRotations) + " rot <<<");
-    }
-
-    /** Go to a predefined indexed target (from targetPositions map). */
-    public void goToTargetIndex(int index) {
-        if (!targetPositions.containsKey(index)) {
-            System.out.println(">>> Climber: target index " + index + " not found <<<");
-            return;
-        }
-        double pos = targetPositions.get(index);
-        enableElevatorPositionControl(pos);
-        System.out.println(">>> Climber: moving to preset target[" + index + "] = " + pos + " rot <<<");
-    }
-
-    /** Disable elevator position control (switch back to manual). */
-    public void disableElevatorPositionControl() {
-        elevatorPositionControlEnabled = false;
-        System.out.println(">>> Climber: position control DISABLED <<<");
     }
 
     /** Start a level-and-return cycle: record current position, go to level, then return home. */
@@ -223,6 +222,39 @@ public class ClimberSubsystem extends SubsystemBase {
         } else {
             // Start new level cycle
             startLevelAndReturn();
+        }
+    }
+
+    /** Go to a predefined indexed target (from targetPositions map). */
+    public void goToTargetIndex(int index) {
+        if (!targetPositions.containsKey(index)) {
+            System.out.println(">>> Climber: target index " + index + " not found <<<");
+            return;
+        }
+        double pos = targetPositions.get(index);
+        enableElevatorPositionControl(pos);
+        System.out.println(">>> Climber: moving to preset target[" + index + "] = " + pos + " rot <<<");
+    }
+
+    /**
+     * Toggle between a preset index and home (index 0).
+     * If currently targeting the preset (within tolerance), go to home; otherwise go to the preset.
+     */
+    public void togglePresetIndex(int index) {
+        if (!targetPositions.containsKey(index)) {
+            System.out.println(">>> Climber: target index " + index + " not found <<<");
+            return;
+        }
+        double preset = targetPositions.get(index);
+        double home = targetPositions.getOrDefault(0, 0.0);
+
+        // If position control is enabled and the current target equals the preset (within tolerance), go home
+        if (elevatorPositionControlEnabled && Math.abs(elevatorTargetPosition - preset) < ELEVATOR_TOLERANCE) {
+            enableElevatorPositionControl(home);
+            System.out.println(">>> Climber: toggle -> returning HOME (" + String.format("%.3f", home) + " rot) <<<");
+        } else {
+            enableElevatorPositionControl(preset);
+            System.out.println(">>> Climber: toggle -> moving to PRESET[" + index + "] (" + String.format("%.3f", preset) + " rot) <<<");
         }
     }
 
@@ -262,6 +294,7 @@ public class ClimberSubsystem extends SubsystemBase {
     public void periodic() {
         double elevPos = elevatorMotor.getPosition().getValueAsDouble();
         SmartDashboard.putNumber("Elevator Position", elevPos);
+      
 
         // Dashboard tuning values (live)
         double newP = SmartDashboard.getNumber("Climber kP", elevatorPID.getP());
@@ -294,17 +327,33 @@ public class ClimberSubsystem extends SubsystemBase {
 
         // Run PID if enabled
         if (elevatorPositionControlEnabled) {
-            double output = elevatorPID.calculate(elevPos, elevatorTargetPosition);
+            // Live tunables
+            double maxOut = SmartDashboard.getNumber("Climber Max Output", DEFAULT_MAX_OUTPUT);
+            double ff = SmartDashboard.getNumber("Climber FF", 0.15); // feedforward to hold against gravity
+            
             lastPidError = elevatorTargetPosition - elevPos;
-            lastPidOutput = MathUtil.clamp(output, -1.0, 1.0);
-            elevatorMotor.set(lastPidOutput);
-
-            // Publish PID telemetry
-            SmartDashboard.putNumber("Climber PID Output", lastPidOutput);
+            
+            // Gentle PID correction: mostly feedforward, tiny PID nudge only
+            double pidOut = elevatorPID.calculate(elevPos, elevatorTargetPosition);
+            double output = ff + pidOut; // feedforward + small PID correction
+            double motorOut = MathUtil.clamp(output, -maxOut, maxOut);
+            
+            // Publish diagnostics
+            SmartDashboard.putNumber("Climber PID pidOut", pidOut);
+            SmartDashboard.putNumber("Climber PID FF", ff);
+            SmartDashboard.putNumber("Climber Motor Output", motorOut);
             SmartDashboard.putNumber("Climber PID Error", lastPidError);
+            
+            lastPidOutput = motorOut;
+            elevatorMotor.set(lastPidOutput);
+            
+            // Telemetry
+            String compact = String.format("pos=%.3f tgt=%.3f err=%.3f out=%.3f",
+                elevPos, elevatorTargetPosition, lastPidError, lastPidOutput);
+            SmartDashboard.putString("Climber PID Telemetry", compact);
 
-            // Print a compact telemetry line for debugging
-            System.out.println(">>> Climber PID: pos=" + String.format("%.3f", elevPos)
+            // Print telemetry
+            System.out.println(">>> Climber: pos=" + String.format("%.3f", elevPos)
                 + " target=" + String.format("%.3f", elevatorTargetPosition)
                 + " err=" + String.format("%.3f", lastPidError)
                 + " out=" + String.format("%.3f", lastPidOutput) + " <<<");

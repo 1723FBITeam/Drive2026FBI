@@ -154,9 +154,9 @@ public class ShooterSubsystem extends SubsystemBase {
     hoodTable.put(4.7, 0.47);
 
     // Flywheel speed table: distance → speed in Rotations Per Second (RPS)
-    shooterRPSTable.put(1.3, 18.4);   // ~1134 RPM
-    shooterRPSTable.put(2.1, 24.5);   // ~1476 RPM
-    shooterRPSTable.put(3.0, 28.3);   // ~1680 RPM
+    shooterRPSTable.put(1.3, 19.0);   // ~1134 RPM
+    shooterRPSTable.put(2.1, 25.5);   // ~1476 RPM
+    shooterRPSTable.put(3.0, 28.6);   // ~1680 RPM
     shooterRPSTable.put(3.8, 32.9);   // ~1950 RPM
     shooterRPSTable.put(4.7, 37.5);   // ~2220 RPM
 

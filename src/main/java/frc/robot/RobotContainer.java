@@ -235,10 +235,10 @@ public class RobotContainer {
         controller.a()
             .onTrue(intakeSubsystem.jostleCommand());
 
-        // B BUTTON — toggle elevator level-and-return cycle
-        // Press: go to level position. Press again: return to home early.
+        // B BUTTON — toggle elevator between home and preset (index 1)
+        // Press once: go to preset target (index 1 = 29.0). Press again: return to home (index 0 = 0.0).
         controller.b()
-            .onTrue(new InstantCommand(() -> climber.toggleLevelCycle()));
+            .onTrue(new InstantCommand(() -> climber.togglePresetIndex(1)));
 
         // BACK BUTTON — reset field-centric heading
         // Determines the correct heading based on alliance color.
