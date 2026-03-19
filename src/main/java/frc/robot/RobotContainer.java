@@ -33,6 +33,7 @@ import edu.wpi.first.wpilibj2.command.SequentialCommandGroup;
 import edu.wpi.first.wpilibj2.command.WaitCommand;
 import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
 import edu.wpi.first.wpilibj2.command.button.RobotModeTriggers;
+import edu.wpi.first.wpilibj2.command.CommandScheduler;
 import frc.robot.generated.TunerConstants;
 import frc.robot.subsystems.CommandSwerveDrivetrain;
 import frc.robot.subsystems.IntakeSubsystem;
@@ -130,6 +131,9 @@ public class RobotContainer {
     // When OFF: co-pilot uses triggers to manually aim, B to fire.
     // When ON: turret auto-tracks the hub, triggers disabled.
     private boolean autoAimEnabled = true;
+    // Trench/practice mode: when true the hood is forced flat (0.0) so the robot
+    // can drive under the trench. Press the Trench toggle again to restore auto-aim.
+    private boolean trenchMode = false;
 
     public RobotContainer() {
         // ===== NAMED COMMANDS FOR PATHPLANNER =====
@@ -370,11 +374,22 @@ public class RobotContainer {
                 }
             }));
 
-        // Back — reset both offsets to zero
+        // Back — toggle Practice/Trench Mode (force hood flat to 0.0)
         copilot.back()
             .onTrue(new InstantCommand(() -> {
-                turretSubsystem.resetAimOffset();
-                shooterSubsystem.resetPowerOffset();
+                trenchMode = !trenchMode;
+                SmartDashboard.putBoolean("Trench Mode", trenchMode);
+                if (trenchMode) {
+                    // Force hood flat so we can go under trench
+                    shooterSubsystem.setHoodPosition(0.0);
+                    System.out.println(">>> Trench Mode: HOOD FLAT (0.0) ENABLED <<<");
+                } else {
+                    // Restore hood based on current distance to hub
+                    Pose2d pose = drivetrain.getState().Pose;
+                    double dist = pose.getTranslation().getDistance(getSmartTarget().getTranslation());
+                    shooterSubsystem.autoAim(dist);
+                    System.out.println(">>> Trench Mode: RESTORED AUTO HOOD <<<");
+                }
             }));
 
         // ===== IDLE BEHAVIOR =====

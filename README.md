@@ -34,7 +34,7 @@ Turret auto-tracks the hub. Triggers disabled.
 | D-pad Up         | Increase shooter power by 1 RPS (~60 RPM)        |
 | D-pad Down       | Decrease shooter power by 1 RPS (~60 RPM)        |
 | Start            | Toggle auto-aim OFF (enter manual mode)          |
-| Back             | Reset all offsets to zero                         |
+| Back             | Toggle trench/practice mode (hood flat on/off)    |
 
 ### Auto-Aim OFF (manual mode)
 Co-pilot aims turret with triggers. Flywheels still auto-calculated from distance.
@@ -48,7 +48,7 @@ Co-pilot aims turret with triggers. Flywheels still auto-calculated from distanc
 | Right Bumper     | Nudge hood servo down (hold)                     |
 | D-pad            | Same offsets as auto mode                        |
 | Start            | Toggle auto-aim back ON                          |
-| Back             | Reset all offsets to zero                         |
+| Back             | Toggle trench/practice mode (hood flat on/off)    |
 
 Aim/power offsets accumulate — pressing D-pad Left 3 times shifts aim by 1.5 degrees. Current offsets are shown on the Calibration tab in Shuffleboard.
 
