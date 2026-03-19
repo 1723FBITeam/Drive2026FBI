@@ -24,6 +24,7 @@ import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.DriverStation.Alliance;
 import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
+import edu.wpi.first.wpilibj.smartdashboard.Field2d;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
 import edu.wpi.first.wpilibj2.command.InstantCommand;
@@ -109,6 +110,11 @@ public class RobotContainer {
     // Auto chooser — dropdown on the dashboard to pick autonomous routine
     private final SendableChooser<Command> autoChooser;
 
+    // Field2d — shows the robot's estimated position on a field map in Shuffleboard.
+    // Drag this widget from SmartDashboard and change its type to "Field2d" to see
+    // the robot icon moving on the field. Great for confirming vision + odometry.
+    private final Field2d field2d = new Field2d();
+
     // Calibration dashboard — plain NetworkTables (arrange in Shuffleboard yourself)
     private final DoublePublisher calRobotX;
     private final DoublePublisher calRobotY;
@@ -148,6 +154,13 @@ public class RobotContainer {
         // Builds a dropdown from all PathPlanner auto files in deploy/pathplanner/autos/
         autoChooser = AutoBuilder.buildAutoChooser("Tests");
         SmartDashboard.putData("Auto Mode", autoChooser);
+
+        // Publish Field2d to the Calibration tab so it's with the other debug data.
+        // In Shuffleboard, drag "Calibration/Field" and set widget type to "Field2d".
+        NetworkTableInstance.getDefault().getTable("Shuffleboard/Calibration")
+            .getSubTable("Field")
+            .getEntry(".type").setString("Field2d");
+        SmartDashboard.putData("Calibration/Field", field2d);
 
         // ===== CALIBRATION DASHBOARD =====
         // Plain NetworkTables — arrange these in Shuffleboard however you like
@@ -446,10 +459,13 @@ public class RobotContainer {
 
     /** Called from Robot.robotPeriodic() — updates calibration values (~10Hz) */
     public void updateCalibrationTelemetry() {
-        telemetryCounter++;
-        if (telemetryCounter % 5 != 0) return; // ~10Hz instead of 50Hz
-
+        // Update Field2d every loop (50Hz) so the robot icon moves smoothly
         Pose2d pose = drivetrain.getState().Pose;
+        field2d.setRobotPose(pose);
+
+        telemetryCounter++;
+        if (telemetryCounter % 5 != 0) return; // ~10Hz for the rest
+
         Pose2d target = getSmartTarget();
         double dist = pose.getTranslation().getDistance(target.getTranslation());
 

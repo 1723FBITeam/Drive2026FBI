@@ -91,10 +91,13 @@ public class Robot extends TimedRobot {
     @Override
     public void disabledPeriodic() {
         // While disabled, seed both Limelights' IMUs with our Pigeon heading.
-        // Mode 1 = "use external heading only" — calibrates the LL IMU so
-        // it's ready for MegaTag2 when we enable.
+        // Front LL: Mode 1 = seed/calibrate internal IMU from Pigeon heading.
+        //   This prepares the front camera's IMU for mode 4 when we enable.
+        // Back LL: Mode 0 = ignore internal IMU entirely, use only Pigeon heading.
+        //   The back camera is mounted in portrait on the elevator — its IMU
+        //   data is unreliable due to the mounting angle and flex.
         LimelightHelpers.SetIMUMode("limelight-front", 1);
-        LimelightHelpers.SetIMUMode("limelight-back", 1);
+        LimelightHelpers.SetIMUMode("limelight-back", 0);
 
         // NOTE: We do NOT seed heading from MegaTag1 here.
         // MegaTag1 can give bad heading with few tags or on a practice field.
@@ -107,9 +110,10 @@ public class Robot extends TimedRobot {
 
     @Override
     public void autonomousInit() {
-        // Mode 4 = "internal IMU + external assist" — best accuracy for MegaTag2
+        // Front LL: Mode 4 = fuse internal IMU + external Pigeon assist (best accuracy)
+        // Back LL: Mode 0 = external Pigeon heading only (skip unreliable internal IMU)
         LimelightHelpers.SetIMUMode("limelight-front", 4);
-        LimelightHelpers.SetIMUMode("limelight-back", 4);
+        LimelightHelpers.SetIMUMode("limelight-back", 0);
 
         // Get the selected auto routine from the dashboard chooser
         m_autonomousCommand = m_robotContainer.getAutonomousCommand();
@@ -131,9 +135,10 @@ public class Robot extends TimedRobot {
         if (m_autonomousCommand != null) {
             CommandScheduler.getInstance().cancel(m_autonomousCommand);
         }
-        // Same Limelight mode as auto — best accuracy for vision fusion
+        // Front LL: Mode 4 = fuse internal IMU + external Pigeon assist
+        // Back LL: Mode 0 = external Pigeon heading only
         LimelightHelpers.SetIMUMode("limelight-front", 4);
-        LimelightHelpers.SetIMUMode("limelight-back", 4);
+        LimelightHelpers.SetIMUMode("limelight-back", 0);
     }
 
     @Override
@@ -264,6 +269,16 @@ public class Robot extends TimedRobot {
         double x = estimate.pose.getX();
         double y = estimate.pose.getY();
         if (x < -1.0 || x > 17.5 || y < -1.0 || y > 9.5) {
+            return;
+        }
+
+        // Jump rejection: if vision says we're more than 1m from where odometry
+        // thinks we are, something is wrong — reject it. This prevents sudden
+        // teleports from a bad tag read. Real drift accumulates slowly, so a
+        // 1m gap means the vision estimate is almost certainly wrong.
+        double distFromCurrent = m_robotContainer.drivetrain.getState().Pose
+            .getTranslation().getDistance(estimate.pose.getTranslation());
+        if (distFromCurrent > 1.0) {
             return;
         }
 
