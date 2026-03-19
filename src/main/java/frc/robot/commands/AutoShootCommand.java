@@ -96,14 +96,10 @@ public class AutoShootCommand extends Command {
         // This predicts where the robot will be in 0.2s and aims there instead
         turret.aimAtPose(robotPose, targetPose, fieldSpeeds);
 
-        // STEP 2: Calculate distance using the same predicted future position
+        // STEP 2: Calculate distance using the same compensated target
         // This keeps the distance calculation consistent with where the turret is aiming
-        double latencySeconds = 0.2;
-        Translation2d futurePosition = robotPose.getTranslation().plus(
-            new Translation2d(
-                fieldSpeeds.vxMetersPerSecond * latencySeconds,
-                fieldSpeeds.vyMetersPerSecond * latencySeconds));
-        double distance = futurePosition.getDistance(targetPose.getTranslation());
+        Translation2d compensatedTarget = turret.getCompensatedTarget(robotPose, targetPose, fieldSpeeds);
+        double distance = robotPose.getTranslation().getDistance(compensatedTarget);
 
         // STEP 3: Set hood angle and flywheel speed based on distance
         // autoAim() uses the interpolation tables in ShooterSubsystem

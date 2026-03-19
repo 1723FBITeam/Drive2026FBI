@@ -257,10 +257,24 @@ public class TurretSubsystem extends SubsystemBase {
         }
     }
 
-    // How far ahead to predict robot position for velocity compensation.
-    // Increase if shots land behind you while moving, decrease if they go ahead.
-    // Tune in 0.05 increments. Set to 0.0 to disable compensation.
-    private static final double VELOCITY_COMPENSATION_SECONDS = 0.2;
+    // ===== ITERATIVE VELOCITY COMPENSATION =====
+    // Inspired by The Flying Circuits (FRC 2026-Robot).
+    // Instead of a simple linear time offset, we iteratively refine the aim point:
+    //   1. Calculate time-of-flight to the target
+    //   2. Offset the target by robot velocity × flight time
+    //   3. Recalculate with the new target (flight time changes because distance changed)
+    //   4. Repeat — converges in ~4 iterations
+    //
+    // This is more accurate than a fixed time offset because the compensation
+    // amount depends on the actual shot distance, which changes as we compensate.
+    //
+    // SHOT_SPEED_MPS: approximate average ball speed in flight (meters per second).
+    // Used to estimate time-of-flight. Doesn't need to be exact — the iteration
+    // converges even with a rough estimate. Tune by measuring actual shot speed
+    // at a few distances and averaging.
+    private static final double SHOT_SPEED_MPS = 10.0;
+    // Number of refinement iterations. 4 is plenty — error is negligible after 3.
+    private static final int COMPENSATION_ITERATIONS = 4;
 
     /**
      * Sends the turret to a target position, automatically detecting if this
@@ -295,32 +309,61 @@ public class TurretSubsystem extends SubsystemBase {
     }
 
     /**
-     * Aim turret at a target, with built-in velocity compensation.
+     * Compute a velocity-compensated aim point using iterative refinement.
      *
-     * Predicts where the robot will be in VELOCITY_COMPENSATION_SECONDS
-     * and aims there instead. When the robot is stationary, speeds are ~0
-     * so this just aims at the current position — no special case needed.
+     * The idea (from The Flying Circuits): the ball inherits the robot's velocity
+     * when launched. To cancel that out, we shift the virtual target backwards by
+     * (robot velocity × time-of-flight). But shifting the target changes the distance,
+     * which changes the time-of-flight, so we iterate until it converges.
+     *
+     * When the robot is stationary (speed < 0.1 m/s), returns the original target
+     * to avoid jitter from encoder noise.
+     *
+     * @param robotPose   current robot pose
+     * @param targetPose  real target on the field
+     * @param fieldSpeeds field-relative chassis speeds
+     * @return the compensated target translation to aim at
+     */
+    public Translation2d getCompensatedTarget(Pose2d robotPose, Pose2d targetPose, ChassisSpeeds fieldSpeeds) {
+        Translation2d originalTarget = targetPose.getTranslation();
+        double speed = Math.hypot(fieldSpeeds.vxMetersPerSecond, fieldSpeeds.vyMetersPerSecond);
+        if (speed < 0.1) {
+            return originalTarget;
+        }
+
+        // Account for turret pivot offset from robot center
+        Translation2d turretFieldPos = robotPose.getTranslation()
+            .plus(TURRET_OFFSET.rotateBy(robotPose.getRotation()));
+
+        Translation2d velocityVector = new Translation2d(
+            fieldSpeeds.vxMetersPerSecond, fieldSpeeds.vyMetersPerSecond);
+
+        Translation2d compensated = originalTarget;
+        for (int i = 0; i < COMPENSATION_ITERATIONS; i++) {
+            double distance = turretFieldPos.getDistance(compensated);
+            double timeOfFlight = distance / SHOT_SPEED_MPS;
+            // Shift target opposite to robot velocity by the flight time
+            compensated = originalTarget.minus(velocityVector.times(timeOfFlight));
+        }
+        return compensated;
+    }
+
+    /**
+     * Aim turret at a target, with iterative velocity compensation.
+     *
+     * Uses iterative refinement to compute a compensated aim point that accounts
+     * for the ball inheriting the robot's velocity. When the robot is stationary,
+     * this just aims at the real target — no special case needed.
      *
      * @param robotPose   current robot pose from odometry
      * @param targetPose  field target to aim at (hub, corner, etc.)
      * @param fieldSpeeds current chassis speeds (pass drivetrain.getState().Speeds)
      */
     public void aimAtPose(Pose2d robotPose, Pose2d targetPose, ChassisSpeeds fieldSpeeds) {
-        // Only apply velocity compensation if the robot is actually moving.
-        // Below 0.1 m/s, encoder noise would just make the aim point jitter.
-        double speed = Math.hypot(fieldSpeeds.vxMetersPerSecond, fieldSpeeds.vyMetersPerSecond);
-        Translation2d futurePosition;
-        if (speed > 0.1) {
-            futurePosition = robotPose.getTranslation().plus(
-                new Translation2d(
-                    fieldSpeeds.vxMetersPerSecond * VELOCITY_COMPENSATION_SECONDS,
-                    fieldSpeeds.vyMetersPerSecond * VELOCITY_COMPENSATION_SECONDS));
-        } else {
-            futurePosition = robotPose.getTranslation();
-        }
-        Pose2d futurePose = new Pose2d(futurePosition, robotPose.getRotation());
+        Translation2d compensatedTarget = getCompensatedTarget(robotPose, targetPose, fieldSpeeds);
+        Pose2d compensatedPose = new Pose2d(compensatedTarget, targetPose.getRotation());
 
-        double targetMechRot = calculateTargetMechanismRotations(futurePose, targetPose);
+        double targetMechRot = calculateTargetMechanismRotations(robotPose, compensatedPose);
         double finalTarget = targetMechRot + aimOffsetRotations;
         double currentPos = turretMotor.getPosition().getValueAsDouble();
 

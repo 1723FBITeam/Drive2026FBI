@@ -33,7 +33,6 @@ import edu.wpi.first.wpilibj2.command.SequentialCommandGroup;
 import edu.wpi.first.wpilibj2.command.WaitCommand;
 import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
 import edu.wpi.first.wpilibj2.command.button.RobotModeTriggers;
-import edu.wpi.first.wpilibj2.command.CommandScheduler;
 import frc.robot.generated.TunerConstants;
 import frc.robot.subsystems.CommandSwerveDrivetrain;
 import frc.robot.subsystems.IntakeSubsystem;
@@ -135,6 +134,12 @@ public class RobotContainer {
     // can drive under the trench. Press the Trench toggle again to restore auto-aim.
     private boolean trenchMode = false;
 
+    // ===== VISION TOGGLE =====
+    // When OFF, Limelight vision corrections are completely disabled.
+    // Useful if vision is causing problems during a match.
+    // Co-pilot right stick press toggles this.
+    private boolean visionEnabled = true;
+
     public RobotContainer() {
         // ===== NAMED COMMANDS FOR PATHPLANNER =====
         // PathPlanner autonomous routines can trigger these by name.
@@ -211,27 +216,14 @@ public class RobotContainer {
                     new RunCommand(() -> intakeSubsystem.runIntake(0.5), intakeSubsystem)
                 ).finallyDo(() -> {
                     // Immediately stop rollers and start retracting.
-                    // The deploy motor runs at 15% in brake mode — it will hold
-                    // position once stopped, so we just need a brief pulse to retract.
                     intakeSubsystem.stopIntake();
                     intakeSubsystem.deployIn();
-                    // Schedule a short, independent command to stop the deploy motor
-                    // after 0.3s. We schedule it separately because the outer
-                    // toggle command may be canceled (interrupting its own
-                    // .andThen() chain), so this ensures the stop always runs.
-                    new WaitCommand(0.3)
-                        .andThen(new InstantCommand(() -> intakeSubsystem.stopDeploy(), intakeSubsystem))
-                        .schedule();
                 })
-                // Phase 2: After cancel/end, immediate retract was scheduled above
+                // Phase 2: After cancel/end, give deploy motor 0.3s to retract, then stop it
+                .andThen(new WaitCommand(0.3))
+                .andThen(new InstantCommand(() -> intakeSubsystem.stopDeploy()))
             );
 
-            controller.leftBumper()
-                .onTrue(new InstantCommand(() -> {
-                    LimelightHelpers.setEnabled(!LimelightHelpers.isEnabled());
-                    SmartDashboard.putBoolean("Limelight Enabled", LimelightHelpers.isEnabled());
-                    System.out.println(">>> Limelight Enabled: " + LimelightHelpers.isEnabled() + " <<<");
-                }));
         // A BUTTON — jostle intake to unstick balls
         // Quick low-power in/out pulse sequence, won't stress motors
         controller.a()
@@ -398,6 +390,14 @@ public class RobotContainer {
                 }
             }));
 
+        // Right Stick Press — toggle Limelight vision on/off
+        // If vision is causing problems during a match, co-pilot can kill it instantly.
+        copilot.rightStick()
+            .onTrue(new InstantCommand(() -> {
+                visionEnabled = !visionEnabled;
+                System.out.println(">>> VISION: " + (visionEnabled ? "ON" : "OFF") + " <<<");
+            }));
+
         // ===== IDLE BEHAVIOR =====
         // When the robot is disabled, set swerve modules to idle (no power)
         final var idle = new SwerveRequest.Idle();
@@ -503,5 +503,11 @@ public class RobotContainer {
             : "NOT SET");
 
         SmartDashboard.putBoolean("Auto-Aim", autoAimEnabled);
+        SmartDashboard.putBoolean("Vision Enabled", visionEnabled);
+    }
+
+    /** Returns true if the co-pilot has vision enabled (right stick toggle). */
+    public boolean isVisionEnabled() {
+        return visionEnabled;
     }
 }

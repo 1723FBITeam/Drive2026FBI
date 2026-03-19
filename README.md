@@ -2,22 +2,22 @@
 
 ## Controller Layout — Driver (Controller 1, USB port 0)
 
-The driver only needs 4 buttons. Drive and let the co-pilot handle the rest.
+The driver handles driving, shooting, intake, and field reset.
 
 | Button/Input     | Action                                           |
 |------------------|--------------------------------------------------|
 | Left Stick       | Drive forward/backward and strafe left/right     |
 | Right Stick X    | Rotate the robot                                 |
-| Left Stick Press | Reactive shoot (only triggers if we're back on our side)
-| Y Button         | Toggle auto-shoot on/off                         |
+| Y Button         | Toggle auto-shoot on/off (aim + spin + feed)     |
 | X Button         | Toggle intake on/off (deploy + rollers)          |
 | A Button         | Jostle intake (unstick balls)                    |
-| Left Bumper      | Toggle Limelight usage (code-level ignore; does NOT power the camera off)
-| Back             | Reset field-centric heading                      |
+| B Button         | Toggle elevator level-and-return cycle           |
+| Right Bumper     | Toggle climber gearbox lock/unlock               |
+| Back             | Reset field-centric heading (alliance-aware)     |
 
 ## Controller Layout — Co-Pilot (Controller 2, USB port 1)
 
-The co-pilot handles shooting, intake, tuning, and manual overrides.
+The co-pilot handles shooting overrides, elevator, tuning, and manual overrides.
 Two modes controlled by Start button:
 
 ### Auto-Aim ON (default)
@@ -26,8 +26,8 @@ Turret auto-tracks the hub. Triggers disabled.
 | Button/Input     | Action                                           |
 |------------------|--------------------------------------------------|
 | Y Button         | Toggle auto-shoot on/off                         |
-| X Button         | Toggle intake on/off (deploy + rollers)          |
-| A Button         | Jostle intake (unstick balls)                    |
+| X Button         | Move elevator up slowly (hold)                   |
+| A Button         | Move elevator down slowly (hold)                 |
 | B Button         | Emergency stop all shooter motors                |
 | Left Bumper      | Nudge hood servo up (hold)                       |
 | Right Bumper     | Nudge hood servo down (hold)                     |
@@ -36,7 +36,8 @@ Turret auto-tracks the hub. Triggers disabled.
 | D-pad Up         | Increase shooter power by 1 RPS (~60 RPM)        |
 | D-pad Down       | Decrease shooter power by 1 RPS (~60 RPM)        |
 | Start            | Toggle auto-aim OFF (enter manual mode)          |
-| Back             | Toggle trench/practice mode (hood flat on/off)    |
+| Back             | Toggle trench/practice mode (hood flat on/off)   |
+| Right Stick Press| Toggle Limelight vision on/off                   |
 
 ### Auto-Aim OFF (manual mode)
 Co-pilot aims turret with triggers. Flywheels still auto-calculated from distance.
@@ -50,7 +51,7 @@ Co-pilot aims turret with triggers. Flywheels still auto-calculated from distanc
 | Right Bumper     | Nudge hood servo down (hold)                     |
 | D-pad            | Same offsets as auto mode                        |
 | Start            | Toggle auto-aim back ON                          |
-| Back             | Toggle trench/practice mode (hood flat on/off)    |
+| Back             | Toggle trench/practice mode (hood flat on/off)   |
 
 Aim/power offsets accumulate — pressing D-pad Left 3 times shifts aim by 1.5 degrees. Current offsets are shown on the Calibration tab in Shuffleboard.
 
@@ -68,7 +69,7 @@ This is the code for our FRC competition robot. It controls a swerve drive base 
 4. The shooter spins up flywheels and adjusts the hood angle based on distance, then feeds the note to score.
 5. A co-pilot on a second controller can manage shooting/intake and live-tune aim and power offsets during a match.
 6. The robot uses zone-based smart targeting — it aims at the hub on our side, flattens the hood near the trench, and aims at corner targets on the opponent's side.
-7. The climber (not yet wired) will be used during endgame to climb.
+7. The climber is used during endgame to climb. The elevator has a level-and-return cycle and a gearbox lock.
 
 ## Project Structure — Where to Find Things
 
@@ -87,7 +88,7 @@ src/main/java/frc/robot/
 │   ├── ShooterSubsystem.java       — Flywheels, feeder, indexer, and hood servo. Has distance-based auto-aim tables.
 │   ├── TurretSubsystem.java        — Rotates the shooter to face the hub. Uses closed-loop position control.
 │   ├── IntakeSubsystem.java        — Intake rollers + deploy mechanism to pick up notes.
-│   └── ClimberSubsystem.java       — Climb motors, elevator, and servos for endgame (not wired yet).
+│   └── ClimberSubsystem.java       — Climb motors, elevator, gearbox lock, and level cycle for endgame.
 │
 ├── commands/                        — Complex actions that coordinate multiple subsystems
 │   └── AutoShootCommand.java        — Auto-aims turret, sets hood+flywheel by distance, feeds when ready.
@@ -140,28 +141,35 @@ The field is divided into three zones, and the robot automatically changes what 
 
 The target updates every 20ms as the robot moves, so transitions between zones are seamless. This logic lives in `RobotContainer.java` → `getSmartTarget()`. Zone boundaries and corner positions are defined in `Constants.java` → `FieldConstants`.
 
-## Velocity Compensation (Shooting While Moving)
+## Iterative Velocity Compensation (Shooting While Moving)
 
-When auto-shoot is active (Y button), the turret predicts where the robot will be in the near future and aims there instead of where it is right now. This compensates for robot movement during shot travel time.
+When auto-shoot is active (Y button), the turret compensates for robot movement using an iterative refinement algorithm inspired by [The Flying Circuits (FRC 2026-Robot)](https://github.com/TheFlyingCircuits/2026-Robot).
 
-The prediction time is controlled by `VELOCITY_COMPENSATION_SECONDS` in `TurretSubsystem.java` (currently **0.2 seconds**).
+Instead of a simple "predict where the robot will be in X seconds" approach, the system:
+1. Calculates the time-of-flight to the target based on distance and estimated shot speed
+2. Shifts the virtual target backwards by (robot velocity × flight time)
+3. Recalculates — because shifting the target changes the distance, which changes the flight time
+4. Repeats 4 times until the answer converges
+
+This is more accurate than a fixed time offset because the compensation amount adapts to the actual shot distance. The same compensated target is used for both turret aiming and distance-based hood/flywheel calculations, keeping everything consistent.
+
+**Key constants in `TurretSubsystem.java`:**
+- `SHOT_SPEED_MPS` (default 10.0 m/s) — estimated average ball speed in flight. Tune by measuring actual shot speed.
+- `COMPENSATION_ITERATIONS` (default 4) — number of refinement passes. 4 is plenty.
 
 **How to tune:**
 1. Drive sideways at a consistent speed past the hub with auto-shoot on
-2. If shots consistently land **behind** you (where you were): increase the value (try 0.25, 0.3)
-3. If shots consistently land **ahead** of you (where you're going): decrease the value (try 0.15, 0.1)
-4. Adjust in 0.05 increments
-5. Set to 0.0 to disable compensation entirely
-
-**Note:** The same 0.2s value is also used in `AutoShootCommand.java` for the distance calculation. If you change one, change both.
+2. If shots consistently land **behind** you (where you were): increase `SHOT_SPEED_MPS` (ball is faster than estimated, so less compensation needed — wait, actually decrease it so flight time increases and compensation increases)
+3. If shots consistently land **ahead** of you: increase `SHOT_SPEED_MPS` (shorter estimated flight time = less compensation)
+4. Adjust in increments of 1.0 m/s
 
 ## How to Calibrate the Shooter
 
 1. Drive to a known distance from the hub
-2. Press Start to begin the auto-shoot sequence
+2. Press Y to start the auto-shoot sequence
 3. Check "Dist to Hub" on the Calibration tab in Shuffleboard
-4. Use A/B buttons to nudge the hood until shots land consistently
-5. Press D-pad Up to log the shot data (prints to console + dashboard)
+4. Use co-pilot bumpers to nudge the hood until shots land consistently
+5. Use co-pilot D-pad Up/Down to nudge flywheel power
 6. Update the tables in `ShooterSubsystem.java` with your new data points
 
 ## Building and Deploying

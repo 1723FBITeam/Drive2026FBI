@@ -204,7 +204,9 @@ public class Robot extends TimedRobot {
 
         // Build a status string for the dashboard so you can see what's happening
         String status;
-        if (spinning) {
+        if (!m_robotContainer.isVisionEnabled()) {
+            status = "DISABLED (co-pilot)";
+        } else if (spinning) {
             status = "REJECTED: spinning " + String.format("%.0f", Math.abs(yawRateDps)) + "°/s";
         } else if (drivingFast) {
             status = "REJECTED: driving " + String.format("%.1f", translationalSpeed) + " m/s";
@@ -235,8 +237,8 @@ public class Robot extends TimedRobot {
             ntVisionStatus.set(status);
         }
 
-        // Only fuse if conditions are good
-        if (!spinning && !drivingFast) {
+        // Only fuse if conditions are good and vision is enabled
+        if (!spinning && !drivingFast && m_robotContainer.isVisionEnabled()) {
             if (frontEst != null) fuseCameraEstimate(frontEst);
             if (backEst != null) fuseCameraEstimate(backEst);
         }
