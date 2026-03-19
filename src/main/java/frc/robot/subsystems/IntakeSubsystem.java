@@ -54,7 +54,6 @@ public class IntakeSubsystem extends SubsystemBase {
     private final DoublePublisher ntLeftPos;
     private final DoublePublisher ntRightPos;
     private final DoublePublisher ntAvgPos;
-    private final DoublePublisher ntOutput;
 
     public IntakeSubsystem() {
         // Configure TalonFXS deploy motors
@@ -87,7 +86,6 @@ public class IntakeSubsystem extends SubsystemBase {
         ntLeftPos  = calTable.getDoubleTopic("Intake L Pos").publish();
         ntRightPos = calTable.getDoubleTopic("Intake R Pos").publish();
         ntAvgPos   = calTable.getDoubleTopic("Intake Avg Pos").publish();
-        ntOutput   = calTable.getDoubleTopic("Intake Output").publish();
     }
 
     /**
@@ -124,36 +122,37 @@ public class IntakeSubsystem extends SubsystemBase {
 
     /**
      * Returns a command that jostles the intake to unstick balls.
-     * Pulses rollers and deploy motors in/out at low power.
-     * Safe to call repeatedly — won't stress motors.
+     * Only pulses the deploy mechanism in/out — rollers keep running
+     * so the ball stays engaged. Safe to call repeatedly.
+     *
+     * Sequence: retract briefly → stop → deploy back out → stop
+     * Each phase is 0.3s so the whole jostle takes about 1.2 seconds.
      */
     public Command jostleCommand() {
         return new SequentialCommandGroup(
-            new InstantCommand(() -> runIntake(-0.25), this),
-            new WaitCommand(0.15),
+            // Pull in briefly to shake things loose
             new InstantCommand(() -> deployIn()),
-            new WaitCommand(0.1),
+            new WaitCommand(0.3),
             new InstantCommand(() -> stopDeploy()),
-            new InstantCommand(() -> runIntake(0.3)),
-            new WaitCommand(0.15),
+            // Push back out to original position
             new InstantCommand(() -> deployOut()),
-            new WaitCommand(0.1),
-            new InstantCommand(() -> stopDeploy()),
-            new InstantCommand(() -> runIntake(-0.2)),
-            new WaitCommand(0.1),
-            new InstantCommand(() -> stopIntake())
+            new WaitCommand(0.3),
+            new InstantCommand(() -> stopDeploy())
         );
     }
 
-    /** Called every 20ms — publishes deploy position data to dashboard */
+    private int telemetryCounter = 0;
+
     @Override
     public void periodic() {
+        telemetryCounter++;
+        if (telemetryCounter % 5 != 0) return; // ~10Hz
+
         double leftPos = intakeLeftActivator.getPosition().getValueAsDouble();
         double rightPos = intakeRightActivator.getPosition().getValueAsDouble();
 
         ntLeftPos.set(leftPos);
         ntRightPos.set(rightPos);
         ntAvgPos.set((leftPos + rightPos) / 2.0);
-        ntOutput.set(0);
     }
 }

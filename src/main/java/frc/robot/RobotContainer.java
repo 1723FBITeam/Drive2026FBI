@@ -16,6 +16,10 @@ import com.pathplanner.lib.auto.NamedCommands;
 import edu.wpi.first.math.filter.SlewRateLimiter;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
+import edu.wpi.first.networktables.DoublePublisher;
+import edu.wpi.first.networktables.NetworkTable;
+import edu.wpi.first.networktables.NetworkTableInstance;
+import edu.wpi.first.networktables.StringPublisher;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.DriverStation.Alliance;
 import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
@@ -104,18 +108,21 @@ public class RobotContainer {
     // Auto chooser — dropdown on the dashboard to pick autonomous routine
     private final SendableChooser<Command> autoChooser;
 
-    // Calibration dashboard entries
-    private edu.wpi.first.networktables.GenericEntry calRobotX;
-    private edu.wpi.first.networktables.GenericEntry calRobotY;
-    private edu.wpi.first.networktables.GenericEntry calRobotHeading;
-    private edu.wpi.first.networktables.GenericEntry calDistToHub;
-    private edu.wpi.first.networktables.GenericEntry calTargetX;
-    private edu.wpi.first.networktables.GenericEntry calTargetY;
-    private edu.wpi.first.networktables.GenericEntry calAlliance;
-    private edu.wpi.first.networktables.GenericEntry calLastDist;
-    private edu.wpi.first.networktables.GenericEntry calLastHood;
-    private edu.wpi.first.networktables.GenericEntry calShotNum;
-    private int calShotCount = 0;
+    // Calibration dashboard — plain NetworkTables (arrange in Shuffleboard yourself)
+    private final DoublePublisher calRobotX;
+    private final DoublePublisher calRobotY;
+    private final DoublePublisher calRobotHeading;
+    private final DoublePublisher calDistToHub;
+    private final DoublePublisher calTargetX;
+    private final DoublePublisher calTargetY;
+    private edu.wpi.first.networktables.StringPublisher calAlliance;
+    private int telemetryCounter = 0;
+
+    // ===== AUTO-AIM MODE =====
+    // Tracks whether auto-aim is active. Start button on co-pilot toggles this.
+    // When OFF: co-pilot uses triggers to manually aim, B to fire.
+    // When ON: turret auto-tracks the hub, triggers disabled.
+    private boolean autoAimEnabled = true;
 
     public RobotContainer() {
         // ===== NAMED COMMANDS FOR PATHPLANNER =====
@@ -144,25 +151,17 @@ public class RobotContainer {
         // Builds a dropdown from all PathPlanner auto files in deploy/pathplanner/autos/
         autoChooser = AutoBuilder.buildAutoChooser("Tests");
         SmartDashboard.putData("Auto Mode", autoChooser);
-        edu.wpi.first.wpilibj.shuffleboard.Shuffleboard.getTab("Calibration")
-            .add("Auto Mode", autoChooser)
-            .withSize(2, 1)
-            .withPosition(0, 0);
 
         // ===== CALIBRATION DASHBOARD =====
-        // These widgets show up on the "Calibration" tab in Shuffleboard
-        // Used for tuning the shooter's distance-based lookup tables
-        var calTab = edu.wpi.first.wpilibj.shuffleboard.Shuffleboard.getTab("Calibration");
-        calRobotX    = calTab.add("Robot X", 0.0).withPosition(2, 1).withSize(1, 1).getEntry();
-        calRobotY    = calTab.add("Robot Y", 0.0).withPosition(3, 1).withSize(1, 1).getEntry();
-        calRobotHeading = calTab.add("Robot Heading", 0.0).withPosition(2, 2).withSize(1, 1).getEntry();
-        calDistToHub = calTab.add("Dist to Hub", 0.0).withPosition(4, 1).withSize(1, 1).getEntry();
-        calTargetX   = calTab.add("Target X", 0.0).withPosition(4, 2).withSize(1, 1).getEntry();
-        calTargetY   = calTab.add("Target Y", 0.0).withPosition(5, 2).withSize(1, 1).getEntry();
-        calAlliance  = calTab.add("Alliance", "???").withPosition(3, 2).withSize(1, 1).getEntry();
-        calLastDist  = calTab.add("Last Shot Dist", 0.0).withPosition(5, 1).withSize(1, 1).getEntry();
-        calLastHood  = calTab.add("Last Shot Hood", 0.0).withPosition(6, 1).withSize(1, 1).getEntry();
-        calShotNum   = calTab.add("Shot #", 0.0).withPosition(7, 1).withSize(1, 1).getEntry();
+        // Plain NetworkTables — arrange these in Shuffleboard however you like
+        NetworkTable calTable = NetworkTableInstance.getDefault().getTable("Calibration");
+        calRobotX    = calTable.getDoubleTopic("Robot X").publish();
+        calRobotY    = calTable.getDoubleTopic("Robot Y").publish();
+        calRobotHeading = calTable.getDoubleTopic("Robot Heading").publish();
+        calDistToHub = calTable.getDoubleTopic("Dist to Hub").publish();
+        calTargetX   = calTable.getDoubleTopic("Target X").publish();
+        calTargetY   = calTable.getDoubleTopic("Target Y").publish();
+        calAlliance  = calTable.getStringTopic("Alliance").publish();
 
         // ===================================================================
         //                 DRIVER CONTROLLER (USB port 0)
@@ -180,19 +179,33 @@ public class RobotContainer {
         // X BUTTON — toggle intake on/off
         // Press once: deploys intake out, starts rollers
         // Press again: retracts intake, stops rollers
+        //
+        // How this works:
+        //   1. Deploy out for 0.3s, then stop deploy motor
+        //   2. Run rollers until the button is toggled off (RunCommand keeps going)
+        //   3. When cancelled: stop rollers, retract for 0.3s, then stop deploy
+        //
+        // The retract sequence is part of the command chain (not a fire-and-forget
+        // schedule call) so we avoid the deprecated Command.schedule() API.
         controller.x()
-            .toggleOnTrue(new SequentialCommandGroup(
-                new InstantCommand(() -> intakeSubsystem.deployOut(), intakeSubsystem),
-                new WaitCommand(0.3),
-                new InstantCommand(() -> intakeSubsystem.stopDeploy()),
-                new RunCommand(() -> intakeSubsystem.runIntake(0.5), intakeSubsystem)
-            ).finallyDo(() -> {
-                intakeSubsystem.deployIn();
-                intakeSubsystem.stopIntake();
-                new WaitCommand(0.3).andThen(
-                    new InstantCommand(() -> intakeSubsystem.stopDeploy())
-                ).schedule();
-            }));
+            .toggleOnTrue(
+                // Phase 1: Deploy out, wait, stop deploy, then run rollers
+                new SequentialCommandGroup(
+                    new InstantCommand(() -> intakeSubsystem.deployOut(), intakeSubsystem),
+                    new WaitCommand(0.3),
+                    new InstantCommand(() -> intakeSubsystem.stopDeploy()),
+                    new RunCommand(() -> intakeSubsystem.runIntake(0.5), intakeSubsystem)
+                ).finallyDo(() -> {
+                    // Immediately stop rollers and start retracting.
+                    // The deploy motor runs at 15% in brake mode — it will hold
+                    // position once stopped, so we just need a brief pulse to retract.
+                    intakeSubsystem.stopIntake();
+                    intakeSubsystem.deployIn();
+                })
+                // Phase 2: After cancel/end, give deploy motor 0.3s to retract, then stop it
+                .andThen(new WaitCommand(0.3))
+                .andThen(new InstantCommand(() -> intakeSubsystem.stopDeploy()))
+            );
 
         // A BUTTON — jostle intake to unstick balls
         // Quick low-power in/out pulse sequence, won't stress motors
@@ -213,70 +226,89 @@ public class RobotContainer {
         // ===================================================================
         //                 CO-PILOT CONTROLLER (USB port 1)
         // ===================================================================
-        // The co-pilot handles shooting, intake, tuning, calibration,
-        // and manual overrides so the driver can focus on driving.
+        // Two modes controlled by Start button:
         //
-        // FACE BUTTONS:
-        //   Y = toggle auto-shoot on/off
-        //   X = toggle intake on/off
-        //   A = jostle intake (unstick balls)
-        //   B = emergency stop all shooter motors
+        // AUTO-AIM ON (default):
+        //   Turret auto-tracks hub. Triggers disabled.
+        //   Y = toggle auto-shoot (aim + spin + feed when ready)
+        //   X = toggle intake
+        //   A = jostle intake
+        //   B = emergency stop shooter
+        //   Bumpers = nudge hood up/down
+        //   D-pad L/R = aim offset ±0.5°
+        //   D-pad U/D = power offset ±1 RPS
+        //   Back = reset offsets
         //
-        // BUMPERS + TRIGGERS (manual overrides):
-        //   Left Trigger  = manually rotate turret left (pressure = speed)
-        //   Right Trigger = manually rotate turret right (pressure = speed)
-        //   Left Bumper   = nudge hood servo up (hold)
-        //   Right Bumper  = nudge hood servo down (hold)
-        //
-        // D-PAD (live tuning offsets):
-        //   Left/Right = nudge turret aim ±0.5 degrees
-        //   Up/Down    = nudge shooter power ±1 RPS
-        //
-        // MENU BUTTONS:
-        //   Start = save shot calibration data point
-        //   Back  = reset all offsets to zero
+        // AUTO-AIM OFF (manual mode):
+        //   Turret controlled by triggers. Flywheels still auto-calculated.
+        //   Triggers = manually aim turret left/right
+        //   B = hold to fire (spin flywheels + feed)
+        //   Bumpers = nudge hood up/down
+        //   D-pad still works for offsets
+        //   Back = reset offsets
+        //   Start again = re-enable auto-aim
         // ===================================================================
 
-        // --- Face buttons ---
+        // --- Face buttons (same in both modes) ---
 
         // Y — toggle auto-shoot (co-pilot can trigger shooting for the driver)
         copilot.y()
             .toggleOnTrue(new AutoShootCommand(turretSubsystem, shooterSubsystem, drivetrain, this::getSmartTarget));
 
-        // X — toggle intake on/off
+        // X — toggle intake on/off (same structure as driver X button)
         copilot.x()
-            .toggleOnTrue(new SequentialCommandGroup(
-                new InstantCommand(() -> intakeSubsystem.deployOut(), intakeSubsystem),
-                new WaitCommand(0.3),
-                new InstantCommand(() -> intakeSubsystem.stopDeploy()),
-                new RunCommand(() -> intakeSubsystem.runIntake(0.5), intakeSubsystem)
-            ).finallyDo(() -> {
-                intakeSubsystem.deployIn();
-                intakeSubsystem.stopIntake();
-                new WaitCommand(0.3).andThen(
-                    new InstantCommand(() -> intakeSubsystem.stopDeploy())
-                ).schedule();
-            }));
+            .toggleOnTrue(
+                new SequentialCommandGroup(
+                    new InstantCommand(() -> intakeSubsystem.deployOut(), intakeSubsystem),
+                    new WaitCommand(0.3),
+                    new InstantCommand(() -> intakeSubsystem.stopDeploy()),
+                    new RunCommand(() -> intakeSubsystem.runIntake(0.5), intakeSubsystem)
+                ).finallyDo(() -> {
+                    intakeSubsystem.stopIntake();
+                    intakeSubsystem.deployIn();
+                })
+                .andThen(new WaitCommand(0.3))
+                .andThen(new InstantCommand(() -> intakeSubsystem.stopDeploy()))
+            );
 
         // A — jostle intake (unstick balls)
         copilot.a()
             .onTrue(intakeSubsystem.jostleCommand());
 
-        // B — emergency stop all shooter motors
+        // B — in auto mode: emergency stop. In manual mode: hold to fire.
         copilot.b()
-            .onTrue(new InstantCommand(() -> shooterSubsystem.stopAll()));
+            .whileTrue(Commands.either(
+                // AUTO-AIM ON: emergency stop (instant, not held)
+                new InstantCommand(() -> shooterSubsystem.stopAll()),
+                // AUTO-AIM OFF (manual mode): spin flywheels at distance-based speed + feed
+                Commands.run(() -> {
+                    Pose2d pose = drivetrain.getState().Pose;
+                    double dist = pose.getTranslation().getDistance(getSmartTarget().getTranslation());
+                    if (dist > 0.5) {
+                        shooterSubsystem.autoAim(dist);
+                    }
+                    shooterSubsystem.runFeeder(0.7);
+                    shooterSubsystem.runIndexer(0.5);
+                }).finallyDo(() -> {
+                    shooterSubsystem.stopFeeder();
+                    shooterSubsystem.stopIndexer();
+                }),
+                () -> autoAimEnabled
+            ));
 
-        // --- Bumpers + Triggers (manual overrides) ---
+        // --- Triggers (manual turret — only when auto-aim is OFF) ---
 
-        // Left Trigger — manually rotate turret CCW/left (pressure-sensitive)
-        copilot.leftTrigger(0.05).whileTrue(Commands.run(
+        // Left Trigger — manually rotate turret CCW/left (only in manual mode)
+        copilot.leftTrigger(0.05).and(() -> !autoAimEnabled).whileTrue(Commands.run(
             () -> turretSubsystem.rotate(copilot.getLeftTriggerAxis() * 0.5),
             turretSubsystem).finallyDo(() -> turretSubsystem.stop()));
 
-        // Right Trigger — manually rotate turret CW/right (pressure-sensitive)
-        copilot.rightTrigger(0.05).whileTrue(Commands.run(
+        // Right Trigger — manually rotate turret CW/right (only in manual mode)
+        copilot.rightTrigger(0.05).and(() -> !autoAimEnabled).whileTrue(Commands.run(
             () -> turretSubsystem.rotate(-copilot.getRightTriggerAxis() * 0.5),
             turretSubsystem).finallyDo(() -> turretSubsystem.stop()));
+
+        // --- Bumpers (hood nudge — works in both modes) ---
 
         // Left Bumper — nudge hood servo UP (hold)
         copilot.leftBumper()
@@ -286,7 +318,7 @@ public class RobotContainer {
         copilot.rightBumper()
             .whileTrue(Commands.run(() -> shooterSubsystem.nudgeHood(-0.005)));
 
-        // --- D-pad (live tuning offsets) ---
+        // --- D-pad (live tuning offsets — works in both modes) ---
 
         // D-pad Left — nudge turret aim left (CCW) by 0.5 degrees
         copilot.povLeft()
@@ -306,21 +338,18 @@ public class RobotContainer {
 
         // --- Menu buttons ---
 
-        // Start — save shot calibration data point
+        // Start — toggle auto-aim on/off
+        // When OFF: turret stops auto-tracking, co-pilot uses triggers to aim manually
+        // When ON: turret resumes auto-tracking the hub
         copilot.start()
             .onTrue(new InstantCommand(() -> {
-                Pose2d pose = drivetrain.getState().Pose;
-                double dist = pose.getTranslation().getDistance(
-                    getSmartTarget().getTranslation());
-                double hood = shooterSubsystem.getHoodPosition();
-                System.out.println(">>> SHOT DATA: dist=" + String.format("%.2f", dist)
-                    + "m, hood=" + String.format("%.3f", hood)
-                    + ", x=" + String.format("%.2f", pose.getX())
-                    + ", y=" + String.format("%.2f", pose.getY()) + " <<<");
-                calShotCount++;
-                calLastDist.setDouble(dist);
-                calLastHood.setDouble(hood);
-                calShotNum.setDouble(calShotCount);
+                autoAimEnabled = !autoAimEnabled;
+                if (autoAimEnabled) {
+                    System.out.println(">>> AUTO-AIM: ON <<<");
+                } else {
+                    System.out.println(">>> AUTO-AIM: OFF (manual mode) <<<");
+                    turretSubsystem.stop(); // Stop turret so triggers can take over
+                }
             }));
 
         // Back — reset both offsets to zero
@@ -349,9 +378,15 @@ public class RobotContainer {
         // ===== DEFAULT COMMANDS =====
         // Default commands run whenever no other command is using that subsystem.
 
-        // Turret default: continuously auto-aim at the hub
+        // Turret default: auto-aim at hub when enabled, idle when manual mode
         turretSubsystem.setDefaultCommand(new RunCommand(
-            () -> turretSubsystem.aimAtPose(drivetrain.getState().Pose, getSmartTarget()),
+            () -> {
+                if (autoAimEnabled) {
+                    turretSubsystem.aimAtPose(drivetrain.getState().Pose, getSmartTarget());
+                }
+                // When auto-aim is off, turret just holds position (no command)
+                // Co-pilot uses triggers to manually aim
+            },
             turretSubsystem));
 
         // Drivetrain default: drive using joystick input with cubic curve + slew rate limiting
@@ -394,22 +429,27 @@ public class RobotContainer {
     }
 
 
-    /** Called from Robot.robotPeriodic() — updates calibration values on the dashboard */
+    /** Called from Robot.robotPeriodic() — updates calibration values (~10Hz) */
     public void updateCalibrationTelemetry() {
+        telemetryCounter++;
+        if (telemetryCounter % 5 != 0) return; // ~10Hz instead of 50Hz
+
         Pose2d pose = drivetrain.getState().Pose;
         Pose2d target = getSmartTarget();
         double dist = pose.getTranslation().getDistance(target.getTranslation());
 
-        calRobotX.setDouble(pose.getX());
-        calRobotY.setDouble(pose.getY());
-        calRobotHeading.setDouble(pose.getRotation().getDegrees());
-        calDistToHub.setDouble(dist);
-        calTargetX.setDouble(target.getX());
-        calTargetY.setDouble(target.getY());
+        calRobotX.set(pose.getX());
+        calRobotY.set(pose.getY());
+        calRobotHeading.set(pose.getRotation().getDegrees());
+        calDistToHub.set(dist);
+        calTargetX.set(target.getX());
+        calTargetY.set(target.getY());
 
         var alliance = DriverStation.getAlliance();
-        calAlliance.setString(alliance.isPresent()
+        calAlliance.set(alliance.isPresent()
             ? (alliance.get() == Alliance.Red ? "RED" : "BLUE")
             : "NOT SET");
+
+        SmartDashboard.putBoolean("Auto-Aim", autoAimEnabled);
     }
 }

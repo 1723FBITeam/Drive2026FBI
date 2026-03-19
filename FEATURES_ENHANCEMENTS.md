@@ -35,7 +35,18 @@ Also update the debug telemetry to publish `turretFieldPos` instead of `robotPos
 
 **To enable:** Just plug in the Limelights. The code in `updateVisionPoseEstimate()` and `fuseCameraEstimate()` already runs every loop — it skips when no data is available.
 
-**Vision heading seed:** While disabled, `seedHeadingFromVision()` uses MegaTag1 multi-tag solves to auto-correct the Pigeon heading. This means you can place the robot at any angle and it figures out heading from AprilTags.
+**Vision telemetry:** Check the `Vision` table in NetworkTables to confirm cameras are working:
+- `Vision/Front Tags` and `Vision/Back Tags` — how many tags each camera sees (0 = no data)
+- `Vision/Front Avg Dist` and `Vision/Back Avg Dist` — average distance to visible tags
+- `Vision/Status` — shows ACTIVE, or why vision is being rejected (spinning, driving fast)
+
+**Important:** We use MegaTag2 ONLY (no MegaTag1). MegaTag2 uses the Pigeon heading as input, so it only corrects X/Y position, never heading. Vision is treated as a gentle correction — high std devs mean it won't override odometry, just slowly fix drift.
+
+**Rejection rules (vision is ignored when):**
+- Spinning faster than 150°/s
+- Driving faster than 3 m/s
+- Single tag farther than 3m
+- Pose is obviously off the field
 
 **Settings to verify in Limelight web UI:**
 - Pipeline: AprilTag

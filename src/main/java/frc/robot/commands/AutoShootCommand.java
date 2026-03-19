@@ -6,7 +6,6 @@ import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.DriverStation.Alliance;
 import edu.wpi.first.wpilibj.Timer;
-import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.Command;
 import frc.robot.Constants;
 import frc.robot.subsystems.CommandSwerveDrivetrain;
@@ -105,7 +104,6 @@ public class AutoShootCommand extends Command {
                 fieldSpeeds.vxMetersPerSecond * latencySeconds,
                 fieldSpeeds.vyMetersPerSecond * latencySeconds));
         double distance = futurePosition.getDistance(targetPose.getTranslation());
-        SmartDashboard.putNumber("Auto Shoot Distance", distance);
 
         // STEP 3: Set hood angle and flywheel speed based on distance
         // autoAim() uses the interpolation tables in ShooterSubsystem
@@ -117,9 +115,6 @@ public class AutoShootCommand extends Command {
         boolean aimed = turret.isAimedAtPose(robotPose, targetPose);
         boolean flywheelsReady = shooter.isReadyToShoot();
         boolean turretResetting = turret.isResetting();
-        SmartDashboard.putBoolean("Auto Shoot Aimed", aimed);
-        SmartDashboard.putBoolean("Auto Shoot Flywheels", flywheelsReady);
-        SmartDashboard.putBoolean("Auto Shoot Turret Reset", turretResetting);
 
         // Start the indexer early to keep notes moving toward the feeder
         // BUT NOT while the turret is resetting (don't want to accidentally fire)

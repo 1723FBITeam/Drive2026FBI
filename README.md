@@ -15,7 +15,11 @@ The driver only needs 4 buttons. Drive and let the co-pilot handle the rest.
 
 ## Controller Layout — Co-Pilot (Controller 2, USB port 1)
 
-The co-pilot handles shooting, intake, tuning, calibration, and manual overrides.
+The co-pilot handles shooting, intake, tuning, and manual overrides.
+Two modes controlled by Start button:
+
+### Auto-Aim ON (default)
+Turret auto-tracks the hub. Triggers disabled.
 
 | Button/Input     | Action                                           |
 |------------------|--------------------------------------------------|
@@ -23,15 +27,27 @@ The co-pilot handles shooting, intake, tuning, calibration, and manual overrides
 | X Button         | Toggle intake on/off (deploy + rollers)          |
 | A Button         | Jostle intake (unstick balls)                    |
 | B Button         | Emergency stop all shooter motors                |
-| Left Trigger     | Manually rotate turret left (pressure = speed)   |
-| Right Trigger    | Manually rotate turret right (pressure = speed)  |
 | Left Bumper      | Nudge hood servo up (hold)                       |
 | Right Bumper     | Nudge hood servo down (hold)                     |
 | D-pad Left       | Nudge turret aim left (CCW) by 0.5 degrees       |
 | D-pad Right      | Nudge turret aim right (CW) by 0.5 degrees       |
 | D-pad Up         | Increase shooter power by 1 RPS (~60 RPM)        |
 | D-pad Down       | Decrease shooter power by 1 RPS (~60 RPM)        |
-| Start            | Save shot calibration data point                 |
+| Start            | Toggle auto-aim OFF (enter manual mode)          |
+| Back             | Reset all offsets to zero                         |
+
+### Auto-Aim OFF (manual mode)
+Co-pilot aims turret with triggers. Flywheels still auto-calculated from distance.
+
+| Button/Input     | Action                                           |
+|------------------|--------------------------------------------------|
+| Left Trigger     | Manually rotate turret left (pressure = speed)   |
+| Right Trigger    | Manually rotate turret right (pressure = speed)  |
+| B Button (hold)  | Fire — spins flywheels + feeds ball              |
+| Left Bumper      | Nudge hood servo up (hold)                       |
+| Right Bumper     | Nudge hood servo down (hold)                     |
+| D-pad            | Same offsets as auto mode                        |
+| Start            | Toggle auto-aim back ON                          |
 | Back             | Reset all offsets to zero                         |
 
 Aim/power offsets accumulate — pressing D-pad Left 3 times shifts aim by 1.5 degrees. Current offsets are shown on the Calibration tab in Shuffleboard.
@@ -121,6 +137,21 @@ The field is divided into three zones, and the robot automatically changes what 
 - **Neutral Zone / Opponent's Side** (past the trench): Aim at the closest corner target instead of the hub. Blue corners are at (3.5, 6.0) and (3.5, 2.0); red corners are mirrored.
 
 The target updates every 20ms as the robot moves, so transitions between zones are seamless. This logic lives in `RobotContainer.java` → `getSmartTarget()`. Zone boundaries and corner positions are defined in `Constants.java` → `FieldConstants`.
+
+## Velocity Compensation (Shooting While Moving)
+
+When auto-shoot is active (Y button), the turret predicts where the robot will be in the near future and aims there instead of where it is right now. This compensates for robot movement during shot travel time.
+
+The prediction time is controlled by `VELOCITY_COMPENSATION_SECONDS` in `TurretSubsystem.java` (currently **0.2 seconds**).
+
+**How to tune:**
+1. Drive sideways at a consistent speed past the hub with auto-shoot on
+2. If shots consistently land **behind** you (where you were): increase the value (try 0.25, 0.3)
+3. If shots consistently land **ahead** of you (where you're going): decrease the value (try 0.15, 0.1)
+4. Adjust in 0.05 increments
+5. Set to 0.0 to disable compensation entirely
+
+**Note:** The same 0.2s value is also used in `AutoShootCommand.java` for the distance calculation. If you change one, change both.
 
 ## How to Calibrate the Shooter
 

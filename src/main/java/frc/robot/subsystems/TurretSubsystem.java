@@ -87,9 +87,6 @@ public class TurretSubsystem extends SubsystemBase {
     // Tracks whether the turret is currently doing a long reset move
     private boolean isResetting = false;
 
-    // Debug print counter (prints every 50 loops ≈ 1 second)
-    private int debugCounter = 0;
-
     // ===== AIM OFFSET (adjusted by co-pilot controller 2) =====
     // This offset is added to every aim calculation, in mechanism rotations.
     // D-pad left/right on controller 2 nudges this value during the match.
@@ -107,19 +104,13 @@ public class TurretSubsystem extends SubsystemBase {
     // DutyCycleOut = simple "spin at X% power" for manual control and resets
     private final DutyCycleOut manualRequest = new DutyCycleOut(0);
 
-    // Dashboard telemetry publishers
+    // Dashboard telemetry publishers (essential only)
     private final DoublePublisher ntPosition;
-    private final DoublePublisher ntVelocity;
     private final DoublePublisher ntTarget;
-    private final DoublePublisher ntDesiredAngle;
     private final DoublePublisher ntError;
     private final BooleanPublisher ntResetting;
     private final DoublePublisher ntAimOffset;
-    private final DoublePublisher ntFieldAngle;
-    private final DoublePublisher ntRelativeAngle;
-    private final DoublePublisher ntTurretFieldX;
-    private final DoublePublisher ntTurretFieldY;
-    private final DoublePublisher ntBaseMechRot;
+    private int telemetryCounter = 0;
 
     public TurretSubsystem() {
         // PID + Feedforward gains for position control
@@ -161,19 +152,12 @@ public class TurretSubsystem extends SubsystemBase {
         turretMotor.setPosition(0);
 
         NetworkTable calTable = NetworkTableInstance.getDefault()
-            .getTable("Shuffleboard/Calibration");
-        ntPosition     = calTable.getDoubleTopic("Turret Pos (mech rot)").publish();
-        ntVelocity     = calTable.getDoubleTopic("Turret Vel (mech rps)").publish();
-        ntTarget       = calTable.getDoubleTopic("Turret Target (mech rot)").publish();
-        ntDesiredAngle = calTable.getDoubleTopic("Turret Desired Deg").publish();
+            .getTable("Calibration");
+        ntPosition     = calTable.getDoubleTopic("Turret Pos").publish();
+        ntTarget       = calTable.getDoubleTopic("Turret Target").publish();
         ntError        = calTable.getDoubleTopic("Turret Error Deg").publish();
         ntResetting    = calTable.getBooleanTopic("Turret Resetting").publish();
-        ntAimOffset    = calTable.getDoubleTopic("Turret Aim Offset (deg)").publish();
-        ntFieldAngle   = calTable.getDoubleTopic("Turret Field Angle").publish();
-        ntRelativeAngle = calTable.getDoubleTopic("Turret Relative Angle").publish();
-        ntTurretFieldX = calTable.getDoubleTopic("Turret Pivot X").publish();
-        ntTurretFieldY = calTable.getDoubleTopic("Turret Pivot Y").publish();
-        ntBaseMechRot  = calTable.getDoubleTopic("Turret Base MechRot").publish();
+        ntAimOffset    = calTable.getDoubleTopic("Turret Aim Offset Deg").publish();
     }
 
     /** Manually rotate the turret (trigger buttons). Soft limits still enforced. */
@@ -198,19 +182,16 @@ public class TurretSubsystem extends SubsystemBase {
     /** Nudge the aim offset left (CCW). Called by co-pilot D-pad left. */
     public void nudgeAimLeft() {
         aimOffsetRotations += AIM_NUDGE_ROTATIONS;
-        System.out.println(">>> Turret offset: " + String.format("%.1f", aimOffsetRotations * 360.0) + " deg <<<");
     }
 
     /** Nudge the aim offset right (CW). Called by co-pilot D-pad right. */
     public void nudgeAimRight() {
         aimOffsetRotations -= AIM_NUDGE_ROTATIONS;
-        System.out.println(">>> Turret offset: " + String.format("%.1f", aimOffsetRotations * 360.0) + " deg <<<");
     }
 
     /** Reset the aim offset back to zero. */
     public void resetAimOffset() {
         aimOffsetRotations = 0.0;
-        System.out.println(">>> Turret offset RESET to 0 <<<");
     }
 
     /**
@@ -248,24 +229,7 @@ public class TurretSubsystem extends SubsystemBase {
         // Turret zero = REAR of robot (confirmed). Subtract 180°.
         Rotation2d turretAngle = relativeAngle.minus(Rotation2d.k180deg);
 
-        // Debug telemetry
-        ntFieldAngle.set(fieldAngle.getDegrees());
-        ntRelativeAngle.set(relativeAngle.getDegrees());
-        ntTurretFieldX.set(turretFieldPos.getX());
-        ntTurretFieldY.set(turretFieldPos.getY());
-
         double base = turretAngle.getDegrees() / 360.0;
-        ntBaseMechRot.set(base);
-
-        debugCounter++;
-        if (debugCounter % 50 == 0) {
-            System.out.println(String.format(
-                "AIM: field=%.1f° rel=%.1f° turret=%.1f° base=%.4f rot | pivot=(%.2f,%.2f) target=(%.2f,%.2f) heading=%.1f°",
-                fieldAngle.getDegrees(), relativeAngle.getDegrees(), turretAngle.getDegrees(), base,
-                turretFieldPos.getX(), turretFieldPos.getY(),
-                targetPose.getX(), targetPose.getY(),
-                robotPose.getRotation().getDegrees()));
-        }
 
         // Generate the two equivalent positions (360 degrees apart)
         double candidateA = base;
@@ -297,13 +261,17 @@ public class TurretSubsystem extends SubsystemBase {
      * Same as above but predicts where the robot WILL BE in ~0.2 seconds.
      * This compensates for note travel time when shooting on the move.
      */
+    // How far ahead to predict robot position for velocity compensation.
+    // Increase if shots land behind you while moving, decrease if they go ahead.
+    // Tune in 0.05 increments. Set to 0.0 to disable compensation.
+    private static final double VELOCITY_COMPENSATION_SECONDS = 0.2;
+
     private double calculateTargetWithCompensation(Pose2d robotPose, Pose2d targetPose, ChassisSpeeds fieldSpeeds) {
         // SIMPLIFIED: no turret pivot offset, just predict future robot center
-        double latencySeconds = 0.2;
         Translation2d futurePosition = robotPose.getTranslation().plus(
             new Translation2d(
-                fieldSpeeds.vxMetersPerSecond * latencySeconds,
-                fieldSpeeds.vyMetersPerSecond * latencySeconds));
+                fieldSpeeds.vxMetersPerSecond * VELOCITY_COMPENSATION_SECONDS,
+                fieldSpeeds.vyMetersPerSecond * VELOCITY_COMPENSATION_SECONDS));
 
         Pose2d futurePose = new Pose2d(futurePosition, robotPose.getRotation());
         return calculateTargetMechanismRotations(futurePose, targetPose);
@@ -338,7 +306,6 @@ public class TurretSubsystem extends SubsystemBase {
             }
         }
 
-        ntDesiredAngle.set(targetMechRot * 360.0);
         ntTarget.set(targetMechRot);
     }
 
@@ -380,12 +347,14 @@ public class TurretSubsystem extends SubsystemBase {
 
     @Override
     public void periodic() {
+        telemetryCounter++;
+        if (telemetryCounter % 5 != 0) return; // ~10Hz instead of 50Hz
+
         double pos = turretMotor.getPosition().getValueAsDouble();
         ntPosition.set(pos);
-        ntVelocity.set(turretMotor.getVelocity().getValueAsDouble());
         double target = turretMotor.getClosedLoopReference().getValueAsDouble();
         ntError.set((pos - target) * 360.0);
         ntResetting.set(isResetting);
-        ntAimOffset.set(aimOffsetRotations * 360.0); // Show offset in degrees on dashboard
+        ntAimOffset.set(aimOffsetRotations * 360.0);
     }
 }

@@ -8,6 +8,11 @@ import edu.wpi.first.hal.FRCNetComm.tInstances;
 import edu.wpi.first.hal.FRCNetComm.tResourceType;
 import edu.wpi.first.hal.HAL;
 import edu.wpi.first.math.VecBuilder;
+import edu.wpi.first.networktables.DoublePublisher;
+import edu.wpi.first.networktables.IntegerPublisher;
+import edu.wpi.first.networktables.NetworkTable;
+import edu.wpi.first.networktables.NetworkTableInstance;
+import edu.wpi.first.networktables.StringPublisher;
 import edu.wpi.first.wpilibj.TimedRobot;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.CommandScheduler;
@@ -33,12 +38,22 @@ public class Robot extends TimedRobot {
     // RobotContainer sets up all subsystems, buttons, and auto routines
     private final RobotContainer m_robotContainer;
 
+    // ===== VISION TELEMETRY =====
+    // These show up on the dashboard so you can confirm Limelights are working.
+    // Look for these under the "Vision" table in NetworkTables.
+    private final IntegerPublisher ntFrontTags;
+    private final IntegerPublisher ntBackTags;
+    private final DoublePublisher ntFrontDist;
+    private final DoublePublisher ntBackDist;
+    private final StringPublisher ntVisionStatus;
+    private int visionTelemetryCounter = 0;
+
     public Robot() {
         // Create the RobotContainer — this is where all the setup happens
         // If this crashes, the error message will tell us what went wrong
         try {
             m_robotContainer = new RobotContainer();
-            System.out.println(">>> Robot code started — build v30 <<<");
+            System.out.println(">>> Robot code started — build v31 <<<");
         } catch (Exception e) {
             System.err.println("!!! ROBOTCONTAINER CRASHED: " + e.getMessage());
             e.printStackTrace();
@@ -46,6 +61,14 @@ public class Robot extends TimedRobot {
         }
         HAL.report(tResourceType.kResourceType_Framework, tInstances.kFramework_RobotBuilder);
         enableLiveWindowInTest(true);
+
+        // Set up vision dashboard publishers
+        NetworkTable visionTable = NetworkTableInstance.getDefault().getTable("Vision");
+        ntFrontTags   = visionTable.getIntegerTopic("Front Tags").publish();
+        ntBackTags    = visionTable.getIntegerTopic("Back Tags").publish();
+        ntFrontDist   = visionTable.getDoubleTopic("Front Avg Dist").publish();
+        ntBackDist    = visionTable.getDoubleTopic("Back Avg Dist").publish();
+        ntVisionStatus = visionTable.getStringTopic("Status").publish();
     }
 
     /**
@@ -68,49 +91,15 @@ public class Robot extends TimedRobot {
     @Override
     public void disabledPeriodic() {
         // While disabled, seed both Limelights' IMUs with our Pigeon heading.
-        // Mode 1 = "use external heading only" — calibrates the IMU so it's ready when we enable.
+        // Mode 1 = "use external heading only" — calibrates the LL IMU so
+        // it's ready for MegaTag2 when we enable.
         LimelightHelpers.SetIMUMode("limelight-front", 1);
         LimelightHelpers.SetIMUMode("limelight-back", 1);
 
-        // VISION HEADING SEED:
-        // While disabled, if a Limelight gets a good multi-tag solve,
-        // use that heading to seed the Pigeon gyro. This means you can
-        // place the robot at ANY angle and it will figure out its heading
-        // from the AprilTags before the match starts.
-        seedHeadingFromVision("limelight-front");
-        seedHeadingFromVision("limelight-back");
-    }
-
-    /**
-     * If the camera sees multiple tags, use MegaTag1 to get heading.
-     * MegaTag1 doesn't need a heading input — it solves purely from
-     * tag geometry, so it works even when the gyro heading is totally wrong.
-     * Only runs while disabled so it doesn't fight the gyro during a match.
-     */
-    private void seedHeadingFromVision(String limelightName) {
-        // Use MegaTag1 (NOT MegaTag2) because MegaTag1 can solve heading
-        // from scratch using multiple tags. MegaTag2 needs a good heading
-        // input which we don't have yet.
-        LimelightHelpers.PoseEstimate estimate =
-            LimelightHelpers.getBotPoseEstimate_wpiBlue(limelightName);
-
-        if (estimate == null || estimate.tagCount < 2) {
-            return; // Only trust multi-tag solves for heading
-        }
-
-        // Sanity check — reject obviously bad poses
-        double x = estimate.pose.getX();
-        double y = estimate.pose.getY();
-        if (x < -1.0 || x > 17.5 || y < -1.0 || y > 9.5) {
-            return;
-        }
-
-        // Seed the drivetrain with the vision-derived pose (including heading)
-        m_robotContainer.drivetrain.resetPose(estimate.pose);
-        System.out.println(">>> VISION SEED from " + limelightName
-            + ": heading=" + String.format("%.1f", estimate.pose.getRotation().getDegrees())
-            + "° pos=(" + String.format("%.2f", x) + ", " + String.format("%.2f", y) + ")"
-            + " tags=" + estimate.tagCount + " <<<");
+        // NOTE: We do NOT seed heading from MegaTag1 here.
+        // MegaTag1 can give bad heading with few tags or on a practice field.
+        // Instead, use the Back button on the driver controller to reset heading,
+        // or let MegaTag2 gently correct X/Y once enabled.
     }
 
     @Override
@@ -169,116 +158,142 @@ public class Robot extends TimedRobot {
     public void simulationPeriodic() {}
 
     /**
-     * VISION FUSION — combines Limelight camera data with wheel odometry.
+     * VISION FUSION — gently corrects X/Y position using Limelight MegaTag2.
      *
-     * We run two Limelights (front + back) for full-field AprilTag coverage.
-     * Each camera independently estimates our position, and both get fused
-     * into the drivetrain's Kalman filter.
+     * PHILOSOPHY: The robot works fine on odometry alone. Vision is only here
+     * to slowly correct drift over time. We NEVER let vision make big sudden
+     * jumps — that would mess up turret aiming worse than the drift it's fixing.
      *
-     * IMPORTANT: Both cameras are mounted on the ELEVATOR, and the belly pan
-     * is not very rigid. This means:
-     *   - The cameras vibrate/flex more than a rigid frame mount
-     *   - Single-tag estimates from far away are unreliable
-     *   - We need aggressive filtering to reject bad frames
-     *   - We scale trust based on how many tags we see and how far away they are
+     * We use MegaTag2 ONLY (no MegaTag1). MegaTag2 uses the Pigeon heading
+     * as input, so it only corrects X/Y position, never heading. The Pigeon
+     * is always trusted for heading (rotation std dev = 9999999).
      *
-     * Every loop (~50Hz):
-     *   1. Send our current heading to BOTH Limelights (needed for MegaTag2)
-     *   2. Get each camera's pose estimate
-     *   3. Reject bad updates (spinning, too far, single-tag at distance, etc.)
-     *   4. Scale trust based on tag count and distance
-     *   5. Feed good updates into the Kalman filter
+     * WHEN WE REJECT VISION ENTIRELY:
+     *   - Spinning faster than 150°/s (heading unreliable → MegaTag2 input is bad)
+     *   - Driving faster than 3 m/s (camera blur + lag makes estimates noisy)
+     *   - Single tag farther than 3m (elevator flex makes these unreliable)
+     *   - Pose is obviously off the field
+     *
+     * WHEN WE ACCEPT BUT DON'T TRUST MUCH:
+     *   - Single tag close → high std dev (gentle nudge)
+     *   - Multi-tag far → medium std dev
+     *   - Multi-tag close → lower std dev (most trusted, but still conservative)
      */
     private void updateVisionPoseEstimate() {
         double robotYawDeg = m_robotContainer.drivetrain.getState().Pose.getRotation().getDegrees();
         double yawRateDps = m_robotContainer.drivetrain.getPigeon2()
             .getAngularVelocityZWorld().getValueAsDouble();
 
-        // Reject all vision if spinning too fast — heading is unreliable
-        // Lowered from 360 to 270 because elevator flex amplifies errors during turns
-        boolean spinning = Math.abs(yawRateDps) > 270;
+        // Calculate translational speed from chassis speeds
+        var speeds = m_robotContainer.drivetrain.getState().Speeds;
+        double translationalSpeed = Math.hypot(
+            speeds.vxMetersPerSecond, speeds.vyMetersPerSecond);
+
+        // Reject all vision if spinning too fast — MegaTag2 needs accurate heading
+        // 150°/s is conservative: even moderate turns can throw off the estimate
+        boolean spinning = Math.abs(yawRateDps) > 150;
+
+        // Reject all vision if driving too fast — camera blur + processing lag
+        // means the estimate is for where we WERE, not where we ARE
+        boolean drivingFast = translationalSpeed > 3.0;
+
+        // Build a status string for the dashboard so you can see what's happening
+        String status;
+        if (spinning) {
+            status = "REJECTED: spinning " + String.format("%.0f", Math.abs(yawRateDps)) + "°/s";
+        } else if (drivingFast) {
+            status = "REJECTED: driving " + String.format("%.1f", translationalSpeed) + " m/s";
+        } else {
+            status = "ACTIVE";
+        }
 
         // Send heading to both cameras so MegaTag2 can work
+        // (we always send this, even if we're going to reject the result)
         LimelightHelpers.SetRobotOrientation("limelight-front",
             robotYawDeg, yawRateDps, 0, 0, 0, 0);
         LimelightHelpers.SetRobotOrientation("limelight-back",
             robotYawDeg, yawRateDps, 0, 0, 0, 0);
 
-        // Fuse front camera
-        if (!spinning) {
-            fuseCameraEstimate("limelight-front");
+        // Get raw estimates for telemetry (even if we reject them)
+        LimelightHelpers.PoseEstimate frontEst =
+            LimelightHelpers.getBotPoseEstimate_wpiBlue_MegaTag2("limelight-front");
+        LimelightHelpers.PoseEstimate backEst =
+            LimelightHelpers.getBotPoseEstimate_wpiBlue_MegaTag2("limelight-back");
+
+        // Publish vision telemetry at ~10Hz so you can confirm cameras are working
+        visionTelemetryCounter++;
+        if (visionTelemetryCounter % 5 == 0) {
+            ntFrontTags.set(frontEst != null ? frontEst.tagCount : 0);
+            ntBackTags.set(backEst != null ? backEst.tagCount : 0);
+            ntFrontDist.set(frontEst != null && frontEst.tagCount > 0 ? frontEst.avgTagDist : 0.0);
+            ntBackDist.set(backEst != null && backEst.tagCount > 0 ? backEst.avgTagDist : 0.0);
+            ntVisionStatus.set(status);
         }
 
-        // Fuse back camera
-        if (!spinning) {
-            fuseCameraEstimate("limelight-back");
+        // Only fuse if conditions are good
+        if (!spinning && !drivingFast) {
+            if (frontEst != null) fuseCameraEstimate(frontEst);
+            if (backEst != null) fuseCameraEstimate(backEst);
         }
     }
 
     /**
-     * Process a single camera's pose estimate with quality filtering.
+     * Process a single camera's pose estimate with conservative filtering.
      *
-     * Because the cameras are on an elevator (flexible mount), we:
-     *   1. Reject single-tag estimates when the tag is far away (>4m) — too noisy
-     *   2. Scale trust based on tag count and average distance:
-     *      - Multi-tag close up → trust a lot (std dev 0.5)
-     *      - Multi-tag far away → trust moderately (std dev 1.0)
-     *      - Single tag close  → trust lightly (std dev 1.5)
-     *      - Single tag medium → trust very lightly (std dev 2.5)
-     *   3. Reject any estimate where the pose is obviously off the field
+     * The goal is to GENTLY correct odometry drift without ever making
+     * things worse. All std devs are high (1.0+) so vision is always
+     * a soft nudge, never a hard correction.
      *
-     * This prevents the turret from twitching when a single far-away tag
-     * gives a bad reading due to elevator vibration or belly pan flex.
+     * On a practice field with only a few tags, you'll mostly get single-tag
+     * estimates. These are accepted but barely trusted (std dev 3.0-5.0).
+     * That's fine — over many loops, even light corrections add up.
      */
-    private void fuseCameraEstimate(String limelightName) {
-        LimelightHelpers.PoseEstimate estimate =
-            LimelightHelpers.getBotPoseEstimate_wpiBlue_MegaTag2(limelightName);
-
-        // No data or no tags visible — skip
-        if (estimate == null || estimate.tagCount == 0) {
+    private void fuseCameraEstimate(LimelightHelpers.PoseEstimate estimate) {
+        // No tags visible — nothing to fuse
+        if (estimate.tagCount == 0) {
             return;
         }
 
         // Reject single-tag estimates when the tag is far away.
-        // With elevator flex, a single tag at 4+ meters gives unreliable pose.
-        if (estimate.tagCount == 1 && estimate.avgTagDist > 4.0) {
+        // With elevator flex, a single tag beyond 3m is too noisy to trust at all.
+        if (estimate.tagCount == 1 && estimate.avgTagDist > 3.0) {
             return;
         }
 
         // Sanity check: reject poses that are obviously off the field
-        // (can happen with bad single-tag solves or partially occluded tags)
         double x = estimate.pose.getX();
         double y = estimate.pose.getY();
         if (x < -1.0 || x > 17.5 || y < -1.0 || y > 9.5) {
             return;
         }
 
-        // Scale trust based on how good this measurement is.
-        // More tags + closer = lower std dev = more trust.
-        // Fewer tags + farther = higher std dev = less trust.
+        // Scale trust based on quality — CONSERVATIVE values.
+        // Higher std dev = less trust = vision is just a gentle nudge.
+        // The robot should drive fine without vision; this only fixes slow drift.
         double xyStdDev;
         if (estimate.tagCount >= 2) {
-            // Multi-tag: much more reliable, especially with MegaTag2
+            // Multi-tag MegaTag2: the most reliable estimate we can get
             if (estimate.avgTagDist < 3.0) {
-                xyStdDev = 0.5;  // Close multi-tag — very trustworthy
+                xyStdDev = 0.7;  // Close multi-tag — good confidence
             } else if (estimate.avgTagDist < 5.0) {
-                xyStdDev = 0.8;  // Medium distance multi-tag — still good
+                xyStdDev = 1.2;  // Medium distance multi-tag
             } else {
-                xyStdDev = 1.2;  // Far multi-tag — decent but not great
+                xyStdDev = 2.0;  // Far multi-tag — still okay but less trusted
             }
         } else {
-            // Single tag: less reliable, especially on a flexible mount
-            if (estimate.avgTagDist < 2.0) {
-                xyStdDev = 1.5;  // Close single tag — okay
-            } else if (estimate.avgTagDist < 3.5) {
-                xyStdDev = 2.5;  // Medium single tag — light trust
+            // Single tag: much less reliable, especially on a flexible mount
+            if (estimate.avgTagDist < 1.5) {
+                xyStdDev = 2.0;  // Very close single tag — decent
+            } else if (estimate.avgTagDist < 2.5) {
+                xyStdDev = 3.5;  // Medium single tag — light nudge only
             } else {
-                xyStdDev = 4.0;  // Far single tag (3.5-4m) — barely trust it
+                xyStdDev = 5.0;  // Far single tag (2.5-3m) — barely trust it
             }
         }
 
-        // Feed the measurement into the Kalman filter
-        // Rotation std dev stays at 9999999 — we always trust the Pigeon for heading
+        // Feed the measurement into the Kalman filter.
+        // Rotation std dev = 9999999 means we NEVER trust vision for heading.
+        // The Pigeon gyro is always the authority on which way we're facing.
         m_robotContainer.drivetrain.setVisionMeasurementStdDevs(
             VecBuilder.fill(xyStdDev, xyStdDev, 9999999));
         m_robotContainer.drivetrain.addVisionMeasurement(

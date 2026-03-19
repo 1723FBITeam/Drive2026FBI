@@ -1,0 +1,43 @@
+{
+  "mcpServers": {
+    "tba": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@withinfocus/tba-mcp-server"
+      ],
+      "env": {
+        "TBA_API_KEY": "KoKOIBzZiRYUv9EOcEy6pWtP47Ppp5iumc6ogUrddtCtefeHh01TUoR4WjiXFdku"
+      },
+      "disabled": false,
+      "autoApprove": [
+        "get_events",
+        "get_event_alliances",
+        "get_event_alliances",
+        "get_event_alliances",
+        "get_event_alliances",
+        "get_event_alliances",
+        "get_event_alliances",
+        "get_event_alliances",
+        "get_team",
+        "get_team",
+        "get_team",
+        "get_team",
+        "get_team",
+        "get_team"
+      ]
+    },
+    "frc-docs": {
+      "command": "uvx",
+      "args": [
+        "first-agentic-csa"
+      ],
+      "env": {},
+      "disabled": false,
+      "autoApprove": [
+        "search_frc_docs",
+        "fetch_frc_doc_page"
+      ]
+    }
+  }
+}

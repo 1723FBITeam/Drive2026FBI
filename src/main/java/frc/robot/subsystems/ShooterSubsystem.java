@@ -261,19 +261,16 @@ public class ShooterSubsystem extends SubsystemBase {
   /** Nudge flywheel power UP (+1 RPS). Called by co-pilot D-pad up. */
   public void nudgePowerUp() {
     rpsOffset += RPS_NUDGE;
-    System.out.println(">>> Shooter RPS offset: " + String.format("%+.1f", rpsOffset) + " RPS <<<");
   }
 
   /** Nudge flywheel power DOWN (-1 RPS). Called by co-pilot D-pad down. */
   public void nudgePowerDown() {
     rpsOffset -= RPS_NUDGE;
-    System.out.println(">>> Shooter RPS offset: " + String.format("%+.1f", rpsOffset) + " RPS <<<");
   }
 
   /** Reset the power offset back to zero. */
   public void resetPowerOffset() {
     rpsOffset = 0.0;
-    System.out.println(">>> Shooter RPS offset RESET to 0 <<<");
   }
 
   /**
@@ -340,8 +337,13 @@ public class ShooterSubsystem extends SubsystemBase {
    * Called automatically every 20ms by the command scheduler.
    * Publishes current shooter data to the dashboard for monitoring.
    */
+  private int telemetryCounter = 0;
+
   @Override
   public void periodic() {
+    telemetryCounter++;
+    if (telemetryCounter % 5 != 0) return; // ~10Hz
+
     ntLeftVel.set(leftShooterMotor.getVelocity().getValueAsDouble());
     ntRightVel.set(rightShooterMotor.getVelocity().getValueAsDouble());
     ntTargetVel.set(targetRPS);
