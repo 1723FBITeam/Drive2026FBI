@@ -87,6 +87,7 @@ public class RobotContainer {
     private final TurretSubsystem turretSubsystem = new TurretSubsystem();
     private final ShooterSubsystem shooterSubsystem = new ShooterSubsystem();
     private final IntakeSubsystem intakeSubsystem = new IntakeSubsystem();
+    private final frc.robot.subsystems.ClimberSubsystem climber = new frc.robot.subsystems.ClimberSubsystem();
     // ClimberSubsystem — not wired yet, uncomment when ready
 
     // Telemetry — sends drivetrain data to the dashboard
@@ -197,16 +198,26 @@ public class RobotContainer {
                     // position once stopped, so we just need a brief pulse to retract.
                     intakeSubsystem.stopIntake();
                     intakeSubsystem.deployIn();
+                    // Schedule a short, independent command to stop the deploy motor
+                    // after 0.3s. We schedule it separately because the outer
+                    // toggle command may be canceled (interrupting its own
+                    // .andThen() chain), so this ensures the stop always runs.
+                    new WaitCommand(0.3)
+                        .andThen(new InstantCommand(() -> intakeSubsystem.stopDeploy(), intakeSubsystem))
+                        .schedule();
                 })
-                // Phase 2: After cancel/end, give deploy motor 0.3s to retract, then stop it
-                .andThen(new WaitCommand(0.3))
-                .andThen(new InstantCommand(() -> intakeSubsystem.stopDeploy()))
+                // Phase 2: After cancel/end, immediate retract was scheduled above
             );
 
         // A BUTTON — jostle intake to unstick balls
         // Quick low-power in/out pulse sequence, won't stress motors
         controller.a()
             .onTrue(intakeSubsystem.jostleCommand());
+
+        // B BUTTON — toggle elevator level-and-return cycle
+        // Press: go to level position. Press again: return to home early.
+        controller.b()
+            .onTrue(new InstantCommand(() -> climber.toggleLevelCycle()));
 
         // BACK BUTTON — reset field-centric heading
         // Determines the correct heading based on alliance color.
@@ -218,6 +229,8 @@ public class RobotContainer {
                 boolean isRed = alliance.isPresent() && alliance.get() == Alliance.Red;
                 drivetrain.seedFieldCentric(isRed ? Rotation2d.kZero : Rotation2d.k180deg);
             }));
+        controller.rightBumper()
+            .onTrue(new InstantCommand(() -> climber.toggleGearboxLock()));
 
         // ===================================================================
         //                 CO-PILOT CONTROLLER (USB port 1)
@@ -251,25 +264,21 @@ public class RobotContainer {
         copilot.y()
             .toggleOnTrue(new AutoShootCommand(turretSubsystem, shooterSubsystem, drivetrain, this::getSmartTarget));
 
-        // X — toggle intake on/off (same structure as driver X button)
+        // X — manually move elevator up slowly (hold to move)
         copilot.x()
-            .toggleOnTrue(
-                new SequentialCommandGroup(
-                    new InstantCommand(() -> intakeSubsystem.deployOut(), intakeSubsystem),
-                    new WaitCommand(0.3),
-                    new InstantCommand(() -> intakeSubsystem.stopDeploy()),
-                    new RunCommand(() -> intakeSubsystem.runIntake(0.5), intakeSubsystem)
-                ).finallyDo(() -> {
-                    intakeSubsystem.stopIntake();
-                    intakeSubsystem.deployIn();
-                })
-                .andThen(new WaitCommand(0.3))
-                .andThen(new InstantCommand(() -> intakeSubsystem.stopDeploy()))
-            );
+            .whileTrue(new edu.wpi.first.wpilibj2.command.StartEndCommand(
+                () -> climber.runElevator(0.25),
+                () -> climber.stopElevator(),
+                climber
+            ));
 
-        // A — jostle intake (unstick balls)
+        // A — manually move elevator down slowly (hold to move)
         copilot.a()
-            .onTrue(intakeSubsystem.jostleCommand());
+            .whileTrue(new edu.wpi.first.wpilibj2.command.StartEndCommand(
+                () -> climber.runElevator(-0.25),
+                () -> climber.stopElevator(),
+                climber
+            ));
 
         // B — in auto mode: emergency stop. In manual mode: hold to fire.
         copilot.b()
@@ -310,7 +319,7 @@ public class RobotContainer {
         copilot.leftBumper()
             .whileTrue(Commands.run(() -> shooterSubsystem.nudgeHood(0.005)));
 
-        // Right Bumper — nudge hood servo DOWN (hold)
+        // Right Bumper — toggle climber gearbox lock/unlock
         copilot.rightBumper()
             .whileTrue(Commands.run(() -> shooterSubsystem.nudgeHood(-0.005)));
 
@@ -399,6 +408,15 @@ public class RobotContainer {
     /** Returns the selected autonomous command from the dashboard dropdown */
     public Command getAutonomousCommand() {
         return autoChooser.getSelected();
+    }
+
+    /**
+     * Manual elevator control command driven by the copilot's left stick Y-axis.
+     * Call this to bind a button to hold for manual control, e.g.:
+     *   copilot.rightStick().whileTrue(copilotManualElevatorControl());
+     */
+    public Command copilotManualElevatorControl() {
+        return new RunCommand(() -> climber.runElevator(-copilot.getLeftY() * 0.6), climber);
     }
 
     /**

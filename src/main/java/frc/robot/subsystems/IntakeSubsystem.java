@@ -15,6 +15,7 @@ import edu.wpi.first.wpilibj2.command.InstantCommand;
 import edu.wpi.first.wpilibj2.command.SequentialCommandGroup;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import edu.wpi.first.wpilibj2.command.WaitCommand;
+// SmartDashboard removed for deploy limits (we let gravity settle)
 import frc.robot.Constants;
 
 /**
@@ -48,7 +49,8 @@ public class IntakeSubsystem extends SubsystemBase {
     // Deploy speed — how fast the deploy motors run (0.15 = 15% power)
     private static final double DEPLOY_SPEED = 0.15;
 
-    private double deployOutput = 0.0;
+    // We intentionally allow the deploy mechanism to coast (no software limits)
+    // so gravity can settle the intake both in and out.
 
     // Dashboard telemetry — shows deploy motor positions for debugging
     private final DoublePublisher ntLeftPos;
@@ -60,8 +62,9 @@ public class IntakeSubsystem extends SubsystemBase {
         // MotorArrangement must be set to Minion_JST because these drive
         // smaller motors connected via JST cable (not the built-in motor)
         TalonFXSConfiguration fxsConfig = new TalonFXSConfiguration();
-        fxsConfig.Commutation.MotorArrangement = MotorArrangementValue.Minion_JST;
-        fxsConfig.MotorOutput.NeutralMode = NeutralModeValue.Brake; // Hold position when stopped
+    fxsConfig.Commutation.MotorArrangement = MotorArrangementValue.Minion_JST;
+    // Use COAST so gravity can settle the deploy when motors are stopped
+    fxsConfig.MotorOutput.NeutralMode = NeutralModeValue.Coast;
         intakeLeftActivator.getConfigurator().apply(fxsConfig);
         intakeRightActivator.getConfigurator().apply(fxsConfig);
 
@@ -104,12 +107,14 @@ public class IntakeSubsystem extends SubsystemBase {
 
     /** Swing the intake outward (away from robot) to reach the ground */
     public void deployOut() {
+        // Drive deploy motors outward; no software limits so gravity can settle
         intakeLeftActivator.set(DEPLOY_SPEED);
         intakeRightActivator.set(DEPLOY_SPEED);
     }
 
     /** Swing the intake inward (back into robot frame) */
     public void deployIn() {
+        // Drive deploy motors inward; no software limits so gravity can settle
         intakeLeftActivator.set(-DEPLOY_SPEED);
         intakeRightActivator.set(-DEPLOY_SPEED);
     }
@@ -151,6 +156,8 @@ public class IntakeSubsystem extends SubsystemBase {
         double leftPos = intakeLeftActivator.getPosition().getValueAsDouble();
         double rightPos = intakeRightActivator.getPosition().getValueAsDouble();
 
+        // No software limits — we intentionally allow the mechanism to coast and
+        // settle under gravity. Telemetry continues below.
         ntLeftPos.set(leftPos);
         ntRightPos.set(rightPos);
         ntAvgPos.set((leftPos + rightPos) / 2.0);

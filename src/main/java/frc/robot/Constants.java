@@ -99,8 +99,10 @@ public class Constants {
         public static final int ELEVATOR_MOTOR = 43;
 
         // Servos use PWM ports (not CAN IDs)
-        public static final int CLIMB_SERVO_LEFT = 1;
-        public static final int CLIMB_SERVO_RIGHT = 2;
+        // public static final int CLIMB_SERVO_LEFT = 1;
+        // public static final int CLIMB_SERVO_RIGHT = 2;
+        public static final int ELEVATOR_SERVO = 1;
+
     }
 
     /**
