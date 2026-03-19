@@ -140,6 +140,12 @@ public class RobotContainer {
     // Co-pilot right stick press toggles this.
     private boolean visionEnabled = true;
 
+    // ===== PASS TARGET SIDE HYSTERESIS =====
+    // Tracks which side (left/right) we're currently passing to.
+    // true = left (high Y), false = right (low Y).
+    // Once committed, the robot must cross 1m past the midline to flip.
+    private boolean passTargetIsLeft = true;
+
     public RobotContainer() {
         // ===== NAMED COMMANDS FOR PATHPLANNER =====
         // PathPlanner autonomous routines can trigger these by name.
@@ -454,27 +460,56 @@ public class RobotContainer {
     }
 
     /**
-     * Returns the target to aim at based on alliance color.
+     * Returns the target to aim at based on alliance color and field position.
      *
-     * SIMPLIFIED FOR TESTING — always aims at our hub.
-     * Zone-based targeting (corners, trench hood flatten) is disabled
-     * until basic aiming is confirmed working.
-     *
-     * TODO: Re-enable zone logic once turret aiming is verified.
+     * When the robot is on its own side (inside the alliance zone), aim at the hub.
+     * When the robot crosses the alliance line into neutral/opponent territory,
+     * switch to a passing target — lob toward our alliance wall, ~4m in from
+     * whichever side wall is closer.
      */
     public Pose2d getSmartTarget() {
         var alliance = DriverStation.getAlliance();
         boolean isRed = alliance.isPresent() && alliance.get() == Alliance.Red;
 
         // Safety: if alliance is not set, try to guess from robot position.
-        // If we're on the red half of the field (X > 8.27), assume red.
         if (!alliance.isPresent()) {
             double robotX = drivetrain.getState().Pose.getX();
             isRed = robotX > (Constants.FieldConstants.FIELD_LENGTH_METERS / 2.0);
         }
 
-        return isRed ? Constants.FieldConstants.RED_HUB_POSE
-                     : Constants.FieldConstants.BLUE_HUB_POSE;
+        double robotX = drivetrain.getState().Pose.getX();
+        double robotY = drivetrain.getState().Pose.getY();
+        double fieldMidY = Constants.FieldConstants.FIELD_WIDTH_METERS / 2.0;
+        double hysteresis = Constants.FieldConstants.PASS_Y_HYSTERESIS;
+
+        // Update left/right side with hysteresis — must cross 1m past midline to flip.
+        // If currently targeting left (high Y), only switch to right when Y drops below midline - buffer.
+        // If currently targeting right (low Y), only switch to left when Y rises above midline + buffer.
+        if (passTargetIsLeft && robotY < fieldMidY - hysteresis) {
+            passTargetIsLeft = false;
+        } else if (!passTargetIsLeft && robotY > fieldMidY + hysteresis) {
+            passTargetIsLeft = true;
+        }
+
+        if (isRed) {
+            // Red alliance zone: X > RED_ZONE_START (12.51m)
+            // Past alliance line = X < RED_ZONE_START
+            if (robotX < Constants.FieldConstants.RED_ZONE_START) {
+                return passTargetIsLeft
+                    ? Constants.FieldConstants.RED_PASS_LEFT
+                    : Constants.FieldConstants.RED_PASS_RIGHT;
+            }
+            return Constants.FieldConstants.RED_HUB_POSE;
+        } else {
+            // Blue alliance zone: X < BLUE_ZONE_END (4.03m)
+            // Past alliance line = X > BLUE_ZONE_END
+            if (robotX > Constants.FieldConstants.BLUE_ZONE_END) {
+                return passTargetIsLeft
+                    ? Constants.FieldConstants.BLUE_PASS_LEFT
+                    : Constants.FieldConstants.BLUE_PASS_RIGHT;
+            }
+            return Constants.FieldConstants.BLUE_HUB_POSE;
+        }
     }
 
 

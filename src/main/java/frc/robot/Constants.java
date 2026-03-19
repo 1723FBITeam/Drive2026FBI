@@ -122,33 +122,75 @@ public class Constants {
      *   and the neutral zone (near the BUMPs at ~4.03m from each wall).
      */
     public static final class FieldConstants {
-        // Total field length in meters
-        public static final double FIELD_LENGTH_METERS = 16.54;
+        // Total field dimensions in meters (from 2026 REBUILT WPILib AprilTag field JSON)
+        // Length: 16.541m (651.2in)
+        // Width:  8.069m  (317.7in)
+        public static final double FIELD_LENGTH_METERS = 16.541;
+        public static final double FIELD_WIDTH_METERS = 8.069;
 
         // ===== ZONE BOUNDARIES (X coordinates, blue origin) =====
-        // Alliance zone depth from the game manual: 158.6in = 4.03m
+        // Alliance zone depth from 2026 game manual: 158.6in ≈ 4.03m
+        // Neutral zone depth: 283in ≈ 7.19m (between the two alliance zones)
         public static final double ALLIANCE_ZONE_DEPTH = 4.03;
         // Neutral zone starts where alliance zone ends
         public static final double BLUE_ZONE_END = ALLIANCE_ZONE_DEPTH;           // 4.03m
         public static final double RED_ZONE_START = FIELD_LENGTH_METERS - ALLIANCE_ZONE_DEPTH; // 12.51m
+        // Midline — center of the field
+        public static final double FIELD_MIDLINE_X = FIELD_LENGTH_METERS / 2.0;   // 8.27m
 
-        // Trench buffer — a small zone around the boundary where we flatten the hood
-        // to safely pass under the trench (robot length + margin)
-        public static final double TRENCH_BUFFER = 1.0; // 1 meter on each side of boundary
+        // ===== HYSTERESIS =====
+        // When the robot is near the Y midline, we don't want the pass target
+        // to flip between left and right every loop. This buffer means the robot
+        // must cross 1m past the midline before the target switches sides.
+        public static final double PASS_Y_HYSTERESIS = 1.0; // meters past midline to switch
+
+        // ===== TRENCH ZONE =====
+        // Trench positions derived from official WPILib 2026 AprilTag field JSON.
+        // Trench AprilTags sit on the trench arms at these X coordinates:
+        //   Blue trench: tags 23/28 at X=4.588 (alliance side), tags 17/22 at X=4.663 (neutral side)
+        //   Red trench:  tags 1/6 at X=11.878 (alliance side), tags 7/12 at X=11.953 (neutral side)
+        // Clearance underneath: 22.25in (56.52cm) — hood MUST be flat to fit.
+        // TRENCH_BUFFER adds extra margin so the hood flattens before we reach it.
+        public static final double TRENCH_BUFFER = 0.5;   // extra margin on each side (meters)
+        // Blue trench X range: 4.588 to 4.663 (+ buffer on each side)
+        public static final double BLUE_TRENCH_MIN_X = 4.588 - TRENCH_BUFFER;  // ~4.088
+        public static final double BLUE_TRENCH_MAX_X = 4.663 + TRENCH_BUFFER;  // ~5.163
+        // Red trench X range: 11.878 to 11.953 (+ buffer on each side)
+        public static final double RED_TRENCH_MIN_X = 11.878 - TRENCH_BUFFER;  // ~11.378
+        public static final double RED_TRENCH_MAX_X = 11.953 + TRENCH_BUFFER;  // ~12.453
+
+        /** Returns true if the given X position is within a trench zone (either alliance). */
+        public static boolean isInTrenchZone(double robotX) {
+            return (robotX >= BLUE_TRENCH_MIN_X && robotX <= BLUE_TRENCH_MAX_X)
+                || (robotX >= RED_TRENCH_MIN_X && robotX <= RED_TRENCH_MAX_X);
+        }
 
         // ===== HUB POSITIONS =====
-        // Blue hub center: 158.6in from blue wall + half of 47in hub depth
-        public static final Pose2d BLUE_HUB_POSE = new Pose2d(4.625, 4.04, new Rotation2d());
-        // Red hub center: mirrored across field center
-        public static final Pose2d RED_HUB_POSE = new Pose2d(
-            FIELD_LENGTH_METERS - 4.625, 4.04, new Rotation2d());
+        // Derived from 2026 WPILib AprilTag field JSON.
+        // Blue hub center: midpoint of tags 25/26 (x=4.022) and 19/20 (x=5.229),
+        //                  midpoint of tags 27/18 (y=3.431) and 24/21 (y=4.638)
+        public static final Pose2d BLUE_HUB_POSE = new Pose2d(4.626, 4.035, new Rotation2d());
+        // Red hub center: midpoint of tags 3/4 (x=11.312) and 9/10 (x=12.519)
+        public static final Pose2d RED_HUB_POSE = new Pose2d(11.916, 4.035, new Rotation2d());
 
-        // ===== CORNER TARGETS (for shooting from neutral zone / opponent's side) =====
-        // When on the opponent's side, we aim at corner targets instead of the hub.
-        // Blue corner targets (used when blue alliance is shooting from neutral/red side)
+        // ===== PASSING TARGETS (for lobbing from opponent's side) =====
+        // When the robot crosses the alliance line into neutral/opponent territory,
+        // lob the ball just barely inside our alliance zone so a teammate can grab it.
+        // X is 0.5m inside the alliance line; Y is 4m from whichever side wall is closer.
+        public static final double PASSING_TARGET_Y_INSET = 4.0;     // 4m from side wall
+        public static final Pose2d BLUE_PASS_LEFT  = new Pose2d(
+            BLUE_ZONE_END - 0.5, FIELD_WIDTH_METERS - PASSING_TARGET_Y_INSET, new Rotation2d());
+        public static final Pose2d BLUE_PASS_RIGHT = new Pose2d(
+            BLUE_ZONE_END - 0.5, PASSING_TARGET_Y_INSET, new Rotation2d());
+        // Red passing targets (just inside red alliance zone)
+        public static final Pose2d RED_PASS_LEFT   = new Pose2d(
+            RED_ZONE_START + 0.5, FIELD_WIDTH_METERS - PASSING_TARGET_Y_INSET, new Rotation2d());
+        public static final Pose2d RED_PASS_RIGHT  = new Pose2d(
+            RED_ZONE_START + 0.5, PASSING_TARGET_Y_INSET, new Rotation2d());
+
+        // ===== CORNER TARGETS (legacy — kept for reference) =====
         public static final Pose2d BLUE_CORNER_LEFT  = new Pose2d(3.5, 6.0, new Rotation2d());
         public static final Pose2d BLUE_CORNER_RIGHT = new Pose2d(3.5, 2.0, new Rotation2d());
-        // Red corner targets (mirrored)
         public static final Pose2d RED_CORNER_LEFT   = new Pose2d(FIELD_LENGTH_METERS - 3.5, 6.0, new Rotation2d());
         public static final Pose2d RED_CORNER_RIGHT  = new Pose2d(FIELD_LENGTH_METERS - 3.5, 2.0, new Rotation2d());
     }

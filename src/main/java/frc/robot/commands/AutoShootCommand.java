@@ -102,8 +102,13 @@ public class AutoShootCommand extends Command {
         double distance = robotPose.getTranslation().getDistance(compensatedTarget);
 
         // STEP 3: Set hood angle and flywheel speed based on distance
-        // autoAim() uses the interpolation tables in ShooterSubsystem
-        if (distance > 0.5) { // Don't aim if we're basically on top of the hub
+        // If we're in a trench zone, force hood flat and stop flywheels (22.25in clearance)
+        boolean inTrench = Constants.FieldConstants.isInTrenchZone(robotPose.getX());
+        if (inTrench) {
+            shooter.setHoodPosition(0.0);
+            shooter.stopFlywheels();
+        } else if (distance > 0.5) {
+            // autoAim() uses the interpolation tables in ShooterSubsystem
             shooter.autoAim(distance);
         }
 
@@ -113,13 +118,13 @@ public class AutoShootCommand extends Command {
         boolean turretResetting = turret.isResetting();
 
         // Start the indexer early to keep notes moving toward the feeder
-        // BUT NOT while the turret is resetting (don't want to accidentally fire)
-        if (flywheelsReady && !turretResetting) {
+        // BUT NOT while the turret is resetting or in the trench zone
+        if (flywheelsReady && !turretResetting && !inTrench) {
             shooter.runIndexer(0.5);
         }
 
-        // Only feed when turret is aimed, flywheels are at speed, AND turret is NOT resetting
-        if (aimed && flywheelsReady && !turretResetting) {
+        // Only feed when turret is aimed, flywheels are at speed, NOT resetting, and NOT in trench
+        if (aimed && flywheelsReady && !turretResetting && !inTrench) {
             // Start a timer — we wait FEED_DELAY seconds before actually feeding
             // This prevents feeding during brief "ready" flickers
             if (readyTimestamp == 0.0) {
@@ -147,6 +152,7 @@ public class AutoShootCommand extends Command {
     public void end(boolean interrupted) {
         turret.stop();
         shooter.stopAll();
+        shooter.setHoodPosition(0.0); // Flatten hood when not shooting
     }
 
     /** This command runs forever until cancelled (toggle off or auto timeout) */
