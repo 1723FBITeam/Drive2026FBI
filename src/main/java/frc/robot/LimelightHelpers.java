@@ -37,6 +37,17 @@ import java.util.concurrent.ConcurrentHashMap;
  * This library supports all Limelight features including AprilTag tracking, Neural Networks, and standard color/retroreflective tracking.
  */
 public class LimelightHelpers {
+    // Global switch to enable/disable all Limelight usage from code.
+    // When false, methods that return pose estimates will return null and
+    // other query methods will return safe defaults. This does NOT power
+    // the camera off — it just makes the robot software ignore vision data.
+    public static volatile boolean LIMELIGHT_ENABLED = true;
+
+    /** Enable or disable Limelight usage in robot code. */
+    public static void setEnabled(boolean enabled) { LIMELIGHT_ENABLED = enabled; }
+
+    /** Returns true if Limelight usage is enabled. */
+    public static boolean isEnabled() { return LIMELIGHT_ENABLED; }
 
     private static final Map<String, DoubleArrayEntry> doubleArrayEntries = new ConcurrentHashMap<>();
 
@@ -704,6 +715,8 @@ public class LimelightHelpers {
     }
 
     private static PoseEstimate getBotPoseEstimate(String limelightName, String entryName, boolean isMegaTag2) {
+        // If Limelight usage is disabled, act like no data is available.
+        if (!LIMELIGHT_ENABLED) return null;
         DoubleArrayEntry poseEntry = LimelightHelpers.getLimelightDoubleArrayEntry(limelightName, entryName);
         
         TimestampedDoubleArray tsValue = poseEntry.getAtomic();

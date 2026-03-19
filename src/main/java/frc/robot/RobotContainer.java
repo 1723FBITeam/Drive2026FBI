@@ -226,6 +226,12 @@ public class RobotContainer {
                 // Phase 2: After cancel/end, immediate retract was scheduled above
             );
 
+            controller.leftBumper()
+                .onTrue(new InstantCommand(() -> {
+                    LimelightHelpers.setEnabled(!LimelightHelpers.isEnabled());
+                    SmartDashboard.putBoolean("Limelight Enabled", LimelightHelpers.isEnabled());
+                    System.out.println(">>> Limelight Enabled: " + LimelightHelpers.isEnabled() + " <<<");
+                }));
         // A BUTTON — jostle intake to unstick balls
         // Quick low-power in/out pulse sequence, won't stress motors
         controller.a()

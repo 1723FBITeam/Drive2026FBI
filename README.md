@@ -8,9 +8,11 @@ The driver only needs 4 buttons. Drive and let the co-pilot handle the rest.
 |------------------|--------------------------------------------------|
 | Left Stick       | Drive forward/backward and strafe left/right     |
 | Right Stick X    | Rotate the robot                                 |
+| Left Stick Press | Reactive shoot (only triggers if we're back on our side)
 | Y Button         | Toggle auto-shoot on/off                         |
 | X Button         | Toggle intake on/off (deploy + rollers)          |
 | A Button         | Jostle intake (unstick balls)                    |
+| Left Bumper      | Toggle Limelight usage (code-level ignore; does NOT power the camera off)
 | Back             | Reset field-centric heading                      |
 
 ## Controller Layout — Co-Pilot (Controller 2, USB port 1)
