@@ -61,18 +61,18 @@ Also update the debug telemetry to publish `turretFieldPos` instead of `robotPos
 ---
 
 ## 3. Aim Deadband (Anti-Hunting)
-**Status:** DISABLED
+**Status:** ENABLED
 **File:** `src/main/java/frc/robot/subsystems/TurretSubsystem.java`
 **What it does:** When the turret is within ~2° of target, stops updating the setpoint. Prevents constant micro-corrections from vision pose noise that make the turret "hunt" back and forth.
 
-**To enable:** In `aimAtPose()` and `aimAtPoseCompensated()`, add before `goToPosition()`:
+**Current threshold:** `0.006` mechanism rotations ≈ 2.2°. If the motor still whines at idle, increase to `0.008` (~2.9°). If aiming feels sluggish, decrease to `0.004` (~1.4°).
+
+**Where it lives:** In both `aimAtPose()` and `aimAtPoseCompensated()`:
 ```java
-double currentPos = turretMotor.getPosition().getValueAsDouble();
 if (Math.abs(currentPos - finalTarget) < 0.006) { // 0.006 rot ≈ 2.2°
     return;
 }
 ```
-**When to enable:** After Limelights are running. Not needed without vision.
 
 ---
 
@@ -117,7 +117,7 @@ public Pose2d getSmartTarget() {
 ---
 
 ## 5. Velocity Compensation
-**Status:** ENABLED (used in AutoShootCommand)
+**Status:** ENABLED (built into aimAtPose)
 **File:** `src/main/java/frc/robot/subsystems/TurretSubsystem.java`
 **What it does:** Predicts where the robot will be in 0.2 seconds and aims there instead. Compensates for robot movement during shot travel time.
-**Note:** This is already active in `AutoShootCommand.execute()` via `aimAtPoseCompensated()`. The default command uses `aimAtPose()` (no compensation) which is fine for idle aiming.
+**Note:** This is now built into the single `aimAtPose()` method — there's no separate compensated version. When the robot is stationary, speeds are ~0 so the prediction has no effect. The `VELOCITY_COMPENSATION_SECONDS` constant (0.2) controls how far ahead to predict. Tune in 0.05 increments.

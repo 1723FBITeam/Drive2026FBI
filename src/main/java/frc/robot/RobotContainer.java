@@ -129,7 +129,8 @@ public class RobotContainer {
         // PathPlanner autonomous routines can trigger these by name.
         // For example, a path can say "run Intake" at a certain point.
         NamedCommands.registerCommand("TurretAim", Commands.run(() -> {
-            turretSubsystem.aimAtPose(drivetrain.getState().Pose, getSmartTarget());
+            turretSubsystem.aimAtPose(drivetrain.getState().Pose, getSmartTarget(),
+                drivetrain.getState().Speeds);
         }, turretSubsystem));
         NamedCommands.registerCommand("Intake", Commands.run(() -> {
             intakeSubsystem.deployOut();
@@ -139,13 +140,8 @@ public class RobotContainer {
             intakeSubsystem.stopIntake();
             intakeSubsystem.deployIn();
         }, intakeSubsystem));
-        NamedCommands.registerCommand("Shoot", new SequentialCommandGroup(
-            new InstantCommand(() -> shooterSubsystem.runFullShooter(0.45)),
-            new WaitCommand(1.5),
-            new InstantCommand(() -> shooterSubsystem.stopAll())
-        ));
         NamedCommands.registerCommand("AutoShoot",
-            new AutoShootCommand(turretSubsystem, shooterSubsystem, drivetrain).withTimeout(3.0));
+            new AutoShootCommand(turretSubsystem, shooterSubsystem, drivetrain));
 
         // ===== AUTO CHOOSER =====
         // Builds a dropdown from all PathPlanner auto files in deploy/pathplanner/autos/
@@ -382,7 +378,8 @@ public class RobotContainer {
         turretSubsystem.setDefaultCommand(new RunCommand(
             () -> {
                 if (autoAimEnabled) {
-                    turretSubsystem.aimAtPose(drivetrain.getState().Pose, getSmartTarget());
+                    turretSubsystem.aimAtPose(drivetrain.getState().Pose, getSmartTarget(),
+                        drivetrain.getState().Speeds);
                 }
                 // When auto-aim is off, turret just holds position (no command)
                 // Co-pilot uses triggers to manually aim

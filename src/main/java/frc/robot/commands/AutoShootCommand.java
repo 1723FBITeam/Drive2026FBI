@@ -94,7 +94,7 @@ public class AutoShootCommand extends Command {
 
         // STEP 1: Aim the turret with velocity compensation
         // This predicts where the robot will be in 0.2s and aims there instead
-        turret.aimAtPoseCompensated(robotPose, targetPose, fieldSpeeds);
+        turret.aimAtPose(robotPose, targetPose, fieldSpeeds);
 
         // STEP 2: Calculate distance using the same predicted future position
         // This keeps the distance calculation consistent with where the turret is aiming

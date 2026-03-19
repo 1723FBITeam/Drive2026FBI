@@ -257,25 +257,10 @@ public class TurretSubsystem extends SubsystemBase {
         }
     }
 
-    /**
-     * Same as above but predicts where the robot WILL BE in ~0.2 seconds.
-     * This compensates for note travel time when shooting on the move.
-     */
     // How far ahead to predict robot position for velocity compensation.
     // Increase if shots land behind you while moving, decrease if they go ahead.
     // Tune in 0.05 increments. Set to 0.0 to disable compensation.
     private static final double VELOCITY_COMPENSATION_SECONDS = 0.2;
-
-    private double calculateTargetWithCompensation(Pose2d robotPose, Pose2d targetPose, ChassisSpeeds fieldSpeeds) {
-        // SIMPLIFIED: no turret pivot offset, just predict future robot center
-        Translation2d futurePosition = robotPose.getTranslation().plus(
-            new Translation2d(
-                fieldSpeeds.vxMetersPerSecond * VELOCITY_COMPENSATION_SECONDS,
-                fieldSpeeds.vyMetersPerSecond * VELOCITY_COMPENSATION_SECONDS));
-
-        Pose2d futurePose = new Pose2d(futurePosition, robotPose.getRotation());
-        return calculateTargetMechanismRotations(futurePose, targetPose);
-    }
 
     /**
      * Sends the turret to a target position, automatically detecting if this
@@ -309,9 +294,33 @@ public class TurretSubsystem extends SubsystemBase {
         ntTarget.set(targetMechRot);
     }
 
-    /** Aim turret at a target (no velocity compensation — good when stationary). */
-    public void aimAtPose(Pose2d robotPose, Pose2d targetPose) {
-        double targetMechRot = calculateTargetMechanismRotations(robotPose, targetPose);
+    /**
+     * Aim turret at a target, with built-in velocity compensation.
+     *
+     * Predicts where the robot will be in VELOCITY_COMPENSATION_SECONDS
+     * and aims there instead. When the robot is stationary, speeds are ~0
+     * so this just aims at the current position — no special case needed.
+     *
+     * @param robotPose   current robot pose from odometry
+     * @param targetPose  field target to aim at (hub, corner, etc.)
+     * @param fieldSpeeds current chassis speeds (pass drivetrain.getState().Speeds)
+     */
+    public void aimAtPose(Pose2d robotPose, Pose2d targetPose, ChassisSpeeds fieldSpeeds) {
+        // Only apply velocity compensation if the robot is actually moving.
+        // Below 0.1 m/s, encoder noise would just make the aim point jitter.
+        double speed = Math.hypot(fieldSpeeds.vxMetersPerSecond, fieldSpeeds.vyMetersPerSecond);
+        Translation2d futurePosition;
+        if (speed > 0.1) {
+            futurePosition = robotPose.getTranslation().plus(
+                new Translation2d(
+                    fieldSpeeds.vxMetersPerSecond * VELOCITY_COMPENSATION_SECONDS,
+                    fieldSpeeds.vyMetersPerSecond * VELOCITY_COMPENSATION_SECONDS));
+        } else {
+            futurePosition = robotPose.getTranslation();
+        }
+        Pose2d futurePose = new Pose2d(futurePosition, robotPose.getRotation());
+
+        double targetMechRot = calculateTargetMechanismRotations(futurePose, targetPose);
         double finalTarget = targetMechRot + aimOffsetRotations;
         double currentPos = turretMotor.getPosition().getValueAsDouble();
 
@@ -319,19 +328,6 @@ public class TurretSubsystem extends SubsystemBase {
         // This prevents constant micro-corrections from vision pose noise
         // that make the turret "hunt" back and forth when the robot is stationary.
         if (Math.abs(currentPos - finalTarget) < 0.006) { // 0.006 rot ≈ 2.2°
-            return;
-        }
-        goToPosition(finalTarget);
-    }
-
-    /** Aim turret WITH velocity compensation — use when shooting on the move. */
-    public void aimAtPoseCompensated(Pose2d robotPose, Pose2d targetPose, ChassisSpeeds fieldSpeeds) {
-        double targetMechRot = calculateTargetWithCompensation(robotPose, targetPose, fieldSpeeds);
-        double finalTarget = targetMechRot + aimOffsetRotations;
-        double currentPos = turretMotor.getPosition().getValueAsDouble();
-
-        // Same deadband as aimAtPose — prevents hunting from vision noise
-        if (Math.abs(currentPos - finalTarget) < 0.006) {
             return;
         }
         goToPosition(finalTarget);
