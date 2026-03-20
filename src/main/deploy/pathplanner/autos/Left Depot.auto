@@ -34,6 +34,12 @@
           "data": {
             "pathName": "Left depot path"
           }
+        },
+        {
+          "type": "named",
+          "data": {
+            "name": "AutoShoot"
+          }
         }
       ]
     }
