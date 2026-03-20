@@ -68,8 +68,8 @@ public class ClimberSubsystem extends SubsystemBase {
     private static final double DEFAULT_HOME_POS = 0.0;
 
     // Servo lock positions
-    private static final double GEARBOX_LOCK_POS = 0.0;
-    private static final double GEARBOX_UNLOCK_POS = 1.0;
+    private static final double GEARBOX_LOCK_POS = 0.5;
+    private static final double GEARBOX_UNLOCK_POS = 0.0;
 
     // Tracks whether gearbox is currently locked
     private boolean gearboxLocked = false;
@@ -96,12 +96,10 @@ public class ClimberSubsystem extends SubsystemBase {
         // Configure PID tolerance so we can use atSetpoint() if needed
         elevatorPID.setTolerance(ELEVATOR_TOLERANCE);
 
-        // Put default tunables on the dashboard so testers can adjust live
-        SmartDashboard.putNumber("Climber Max Output", DEFAULT_MAX_OUTPUT);
-        SmartDashboard.putNumber("Climber FF", 0.06);
-        SmartDashboard.putNumber("Climber Output Smoothing (alpha)", 0.25);
-        SmartDashboard.putNumber("Climber Hold Settle Seconds", 0.15);
-        SmartDashboard.putBoolean("Climber Test Mode", false);
+        // Ensure gearbox is unlocked at robot start so elevator can move freely.
+        // Some hardware rests the servo at the locked position (0.5) — unlock here.
+        unlockGearbox();
+        SmartDashboard.putBoolean("Climber Gearbox Locked", gearboxLocked);
     }
 
     // ==================== CLIMB MOTORS ====================

@@ -142,7 +142,9 @@ public class IntakeSubsystem extends SubsystemBase {
             // Push back out to original position
             new InstantCommand(() -> deployOut()),
             new WaitCommand(0.3),
-            new InstantCommand(() -> stopDeploy())
+            new InstantCommand(() -> stopDeploy()),
+            // Short gap between jostle cycles when repeating so the mechanism gets a brief rest
+            new WaitCommand(0.2)
         );
     }
 

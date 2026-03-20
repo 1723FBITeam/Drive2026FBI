@@ -31,6 +31,7 @@ import edu.wpi.first.wpilibj2.command.InstantCommand;
 import edu.wpi.first.wpilibj2.command.RunCommand;
 import edu.wpi.first.wpilibj2.command.SequentialCommandGroup;
 import edu.wpi.first.wpilibj2.command.WaitCommand;
+import edu.wpi.first.wpilibj2.command.RepeatCommand;
 import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
 import edu.wpi.first.wpilibj2.command.button.RobotModeTriggers;
 import frc.robot.generated.TunerConstants;
@@ -97,9 +98,9 @@ public class RobotContainer {
     // ===== SLEW RATE LIMITERS =====
     // These smooth out sudden joystick movements so the robot doesn't jerk.
     // Value of 3.0 means it takes ~0.33 seconds to go from 0 to full speed.
-    private final SlewRateLimiter xLimiter = new SlewRateLimiter(3.0);
-    private final SlewRateLimiter yLimiter = new SlewRateLimiter(3.0);
-    private final SlewRateLimiter rotationLimiter = new SlewRateLimiter(3.0);
+    private final SlewRateLimiter xLimiter = new SlewRateLimiter(4.0);
+    private final SlewRateLimiter yLimiter = new SlewRateLimiter(4.0);
+    private final SlewRateLimiter rotationLimiter = new SlewRateLimiter(4.0);
 
     // Xbox controller on USB port 0 (driver)
     private final CommandXboxController controller = new CommandXboxController(0);
@@ -231,9 +232,9 @@ public class RobotContainer {
             );
 
         // A BUTTON — jostle intake to unstick balls
-        // Quick low-power in/out pulse sequence, won't stress motors
+        // While held: continuously repeat the jostle sequence (with a short gap) until released.
         controller.a()
-            .onTrue(intakeSubsystem.jostleCommand());
+            .whileTrue(new RepeatCommand(intakeSubsystem.jostleCommand()));
 
         // B BUTTON — toggle elevator between home and preset (index 1)
         // Press once: go to preset target (index 1 = 29.0). Press again: return to home (index 0 = 0.0).
