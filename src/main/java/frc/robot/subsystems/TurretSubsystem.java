@@ -28,9 +28,11 @@ import frc.robot.Constants;
  *
  * HOW IT WORKS:
  * The turret sits on top of the robot and can spin beyond 360 degrees total.
- * It uses CLOSED-LOOP POSITION CONTROL, meaning we tell the motor
- * "go to this angle" and the motor PID loop (running at 1000Hz
- * on the TalonFX) handles getting there smoothly.
+ * It uses MOTION MAGIC POSITION CONTROL, meaning we tell the motor
+ * "go to this angle" and the motor generates a smooth trapezoidal/S-curve
+ * velocity profile to get there without skipping gear teeth. The profile
+ * limits acceleration and cruise velocity so the small turret pinion
+ * doesn't get overwhelmed on large moves.
  *
  * COORDINATE SYSTEM:
  * - 0 position = turret facing the REAR of the robot
@@ -114,9 +116,9 @@ public class TurretSubsystem extends SubsystemBase {
     //   - If teeth still skip: lower acceleration and/or cruise velocity
     //   - If turret is too slow to track: raise cruise velocity first, then acceleration
     //   - Jerk controls how abruptly acceleration changes (S-curve smoothing)
-    private static final double MOTION_MAGIC_CRUISE_VELOCITY = 0.25;  // rps (90 deg/sec) — gentle for loose belt
-    private static final double MOTION_MAGIC_ACCELERATION = 0.5;     // rps/s (reaches cruise in 0.5s)
-    private static final double MOTION_MAGIC_JERK = 5.0;             // rps/s/s (smooth S-curve, no sudden torque)
+    private static final double MOTION_MAGIC_CRUISE_VELOCITY = 0.4;   // rps (144 deg/sec)
+    private static final double MOTION_MAGIC_ACCELERATION = 1.0;     // rps/s (reaches cruise in 0.4s)
+    private static final double MOTION_MAGIC_JERK = 10.0;            // rps/s/s (smooth S-curve)
 
     // MotionMagicVoltage = "go to this position using a smooth motion profile"
     // Normal aiming uses Slot 0 (full PID gains)

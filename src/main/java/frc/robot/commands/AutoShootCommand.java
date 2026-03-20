@@ -115,7 +115,7 @@ public class AutoShootCommand extends Command {
         // Start the indexer early to keep notes moving toward the feeder
         // BUT NOT while the turret is resetting or in the trench zone
         if (flywheelsReady && !turretResetting && !inTrench) {
-            shooter.runIndexer(0.5);
+            shooter.runIndexer(0.7);
         }
 
         // Only feed when turret is aimed, flywheels are at speed, NOT resetting, and NOT in trench
@@ -127,8 +127,8 @@ public class AutoShootCommand extends Command {
             }
             if (Timer.getFPGATimestamp() - readyTimestamp >= FEED_DELAY) {
                 // We've been ready long enough — fire!
-                shooter.runFeeder(1.0);
-                shooter.runIndexer(1.0);
+                shooter.runFeeder(0.85);
+                shooter.runIndexer(0.7);
                 feeding = true;
             }
         } else {

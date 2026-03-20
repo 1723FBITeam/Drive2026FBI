@@ -63,13 +63,13 @@ Also update the debug telemetry to publish `turretFieldPos` instead of `robotPos
 ## 3. Aim Deadband (Anti-Hunting)
 **Status:** ENABLED
 **File:** `src/main/java/frc/robot/subsystems/TurretSubsystem.java`
-**What it does:** When the turret is within ~2° of target, stops updating the setpoint. Prevents constant micro-corrections from vision pose noise that make the turret "hunt" back and forth.
+**What it does:** When the turret is within the deadband of the target, stops updating the setpoint. Prevents constant micro-corrections from vision pose noise that make the turret "hunt" back and forth.
 
-**Current threshold:** `0.006` mechanism rotations ≈ 2.2°. If the motor still whines at idle, increase to `0.008` (~2.9°). If aiming feels sluggish, decrease to `0.004` (~1.4°).
+**Current threshold:** `AIM_DEADBAND_DEGREES = 1.0` (converted to mechanism rotations internally). If the motor still whines at idle, increase the deadband. If aiming feels sluggish, decrease it.
 
-**Where it lives:** In both `aimAtPose()` and `aimAtPoseCompensated()`:
+**Where it lives:** In `aimAtPose()`:
 ```java
-if (Math.abs(currentPos - finalTarget) < 0.006) { // 0.006 rot ≈ 2.2°
+if (Math.abs(currentPos - finalTarget) < AIM_DEADBAND_ROTATIONS) {
     return;
 }
 ```
@@ -119,5 +119,22 @@ public Pose2d getSmartTarget() {
 ## 5. Velocity Compensation
 **Status:** ENABLED (built into aimAtPose)
 **File:** `src/main/java/frc/robot/subsystems/TurretSubsystem.java`
-**What it does:** Predicts where the robot will be in 0.2 seconds and aims there instead. Compensates for robot movement during shot travel time.
-**Note:** This is now built into the single `aimAtPose()` method — there's no separate compensated version. When the robot is stationary, speeds are ~0 so the prediction has no effect. The `VELOCITY_COMPENSATION_SECONDS` constant (0.2) controls how far ahead to predict. Tune in 0.05 increments.
+**What it does:** Uses iterative refinement to compute a velocity-compensated aim point. The ball inherits the robot's velocity when launched, so the turret shifts its aim to cancel that out. Converges in ~4 iterations.
+**Note:** This is built into the single `aimAtPose()` method — there's no separate compensated version. When the robot is stationary (< 0.1 m/s), the compensation has no effect. The `SHOT_SPEED_MPS` constant (10.0) controls the estimated ball speed used for time-of-flight calculation.
+
+---
+
+## 6. Motion Magic Turret Control
+**Status:** ENABLED
+**File:** `src/main/java/frc/robot/subsystems/TurretSubsystem.java`
+**What it does:** Uses CTRE Motion Magic instead of raw PositionVoltage for turret moves. Generates a trapezoidal/S-curve velocity profile that limits acceleration and cruise velocity, preventing the small turret pinion gear from skipping teeth on large moves.
+
+**Current settings (mechanism units — turret rotations/sec):**
+- Cruise velocity: 0.4 rps (144°/sec)
+- Acceleration: 1.0 rps/s
+- Jerk: 10 rps/s/s (S-curve smoothing)
+
+**Tuning:**
+- If teeth skip: lower acceleration and/or cruise velocity
+- If turret is too slow to track: raise cruise velocity first, then acceleration
+- Jerk controls how abruptly acceleration changes — lower = smoother starts/stops

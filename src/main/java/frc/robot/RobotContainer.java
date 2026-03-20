@@ -335,8 +335,8 @@ public class RobotContainer {
                     if (dist > 0.5) {
                         shooterSubsystem.autoAim(dist);
                     }
-                    shooterSubsystem.runFeeder(0.7);
-                    shooterSubsystem.runIndexer(0.5);
+                    shooterSubsystem.runFeeder(0.85);
+                    shooterSubsystem.runIndexer(0.7);
                 }).finallyDo(() -> {
                     shooterSubsystem.stopFeeder();
                     shooterSubsystem.stopIndexer();
