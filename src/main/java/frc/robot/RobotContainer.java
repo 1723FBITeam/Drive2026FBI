@@ -426,11 +426,10 @@ public class RobotContainer {
         // Register telemetry so drivetrain data shows up on the dashboard
         drivetrain.registerTelemetry(logger::telemeterize);
 
-        // Set initial heading based on alliance color
-        // Blue: facing red wall = 180°, Red: facing blue wall = 0° (in blue-origin coords)
-        var alliance = DriverStation.getAlliance();
-        boolean isRed = alliance.isPresent() && alliance.get() == Alliance.Red;
-        drivetrain.seedFieldCentric(isRed ? Rotation2d.kZero : Rotation2d.k180deg);
+        // NOTE: Operator perspective (for field-centric driving) is handled
+        // automatically by CommandSwerveDrivetrain.periodic() using
+        // setOperatorPerspectiveForward(). No need to seed it here.
+        // For auto, PathPlanner's resetOdom handles the starting pose.
 
         // ===== DEFAULT COMMANDS =====
         // Default commands run whenever no other command is using that subsystem.

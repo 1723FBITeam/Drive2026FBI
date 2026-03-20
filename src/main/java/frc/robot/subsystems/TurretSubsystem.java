@@ -92,9 +92,13 @@ public class TurretSubsystem extends SubsystemBase {
     // D-pad left/right on controller 2 nudges this value during the match.
     // Positive = shift aim counterclockwise, Negative = shift aim clockwise.
     private double aimOffsetRotations = 0.0;
-    // Each D-pad press nudges by 0.5 degrees (converted to mechanism rotations)
-    private static final double AIM_NUDGE_DEGREES = 0.5;
+    // Each D-pad press nudges by 1 degree (converted to mechanism rotations)
+    private static final double AIM_NUDGE_DEGREES = 1.0;
     private static final double AIM_NUDGE_ROTATIONS = AIM_NUDGE_DEGREES / 360.0;
+
+    // Deadband: ignore aim updates smaller than this to prevent jitter from vision noise
+    private static final double AIM_DEADBAND_DEGREES = 1.0;
+    private static final double AIM_DEADBAND_ROTATIONS = AIM_DEADBAND_DEGREES / 360.0;
 
     // PositionVoltage = "go to this position and hold it"
     // Normal aiming uses full PID gains (Slot 0)
@@ -386,7 +390,7 @@ public class TurretSubsystem extends SubsystemBase {
         // Small deadband: if we're already within ~2° of target, don't update.
         // This prevents constant micro-corrections from vision pose noise
         // that make the turret "hunt" back and forth when the robot is stationary.
-        if (Math.abs(currentPos - finalTarget) < 0.006) { // 0.006 rot ≈ 2.2°
+        if (Math.abs(currentPos - finalTarget) < AIM_DEADBAND_ROTATIONS) {
             return;
         }
         goToPosition(finalTarget);

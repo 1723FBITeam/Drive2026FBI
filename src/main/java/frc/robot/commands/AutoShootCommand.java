@@ -97,13 +97,10 @@ public class AutoShootCommand extends Command {
             shooter.setHoodPosition(0.0);
             shooter.stopFlywheels();
         } else if (distance > 0.5) {
-            // Determine if this is a passing shot or a hub shot.
-            // Hub shots use calibrated interpolation tables; passing shots use
-            // physics-based trajectory calculations for better accuracy at range
-            // (when enabled — toggle USE_TRAJECTORY_PASSING in Constants).
-            boolean isPassingShot = !targetPose.equals(Constants.FieldConstants.BLUE_HUB_POSE)
-                                 && !targetPose.equals(Constants.FieldConstants.RED_HUB_POSE);
-            if (isPassingShot && trajectoryPassingSupplier.get()) {
+            // Use trajectory physics or interpolation tables based on co-pilot toggle.
+            // Toggle OFF (default): calibrated interpolation tables (proven, match-safe)
+            // Toggle ON: physics-based trajectory calculations (experimental)
+            if (trajectoryPassingSupplier.get()) {
                 shooter.passAutoAim(distance);
             } else {
                 shooter.autoAim(distance);
