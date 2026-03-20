@@ -323,7 +323,7 @@ public class TurretSubsystem extends SubsystemBase {
     // Used to estimate time-of-flight. Doesn't need to be exact — the iteration
     // converges even with a rough estimate. Tune by measuring actual shot speed
     // at a few distances and averaging.
-    private static final double SHOT_SPEED_MPS = 6.0;
+    private static final double SHOT_SPEED_MPS = 8.0;
     // Number of refinement iterations. 4 is plenty — error is negligible after 3.
     private static final int COMPENSATION_ITERATIONS = 4;
 
@@ -374,8 +374,15 @@ public class TurretSubsystem extends SubsystemBase {
      * @param fieldSpeeds field-relative chassis speeds
      * @return the compensated target translation to aim at
      */
-    public Translation2d getCompensatedTarget(Pose2d robotPose, Pose2d targetPose, ChassisSpeeds fieldSpeeds) {
+    public Translation2d getCompensatedTarget(Pose2d robotPose, Pose2d targetPose, ChassisSpeeds robotRelativeSpeeds) {
         Translation2d originalTarget = targetPose.getTranslation();
+
+        // Convert robot-relative speeds to field-relative speeds.
+        // getState().Speeds returns robot-relative (vx = forward, vy = left),
+        // but we need field-relative to shift the target on the field.
+        ChassisSpeeds fieldSpeeds = ChassisSpeeds.fromRobotRelativeSpeeds(
+            robotRelativeSpeeds, robotPose.getRotation());
+
         double speed = Math.hypot(fieldSpeeds.vxMetersPerSecond, fieldSpeeds.vyMetersPerSecond);
         if (speed < 0.1) {
             return originalTarget;
@@ -392,7 +399,8 @@ public class TurretSubsystem extends SubsystemBase {
         for (int i = 0; i < COMPENSATION_ITERATIONS; i++) {
             double distance = turretFieldPos.getDistance(compensated);
             double timeOfFlight = distance / SHOT_SPEED_MPS;
-            // Shift target opposite to robot velocity by the flight time
+            // Shift target opposite to robot velocity by the flight time.
+            // If driving right, the ball drifts right, so aim left of the target.
             compensated = originalTarget.minus(velocityVector.times(timeOfFlight));
         }
         return compensated;
