@@ -8,6 +8,7 @@ import edu.wpi.first.hal.FRCNetComm.tInstances;
 import edu.wpi.first.hal.FRCNetComm.tResourceType;
 import edu.wpi.first.hal.HAL;
 import edu.wpi.first.math.VecBuilder;
+import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.networktables.DoublePublisher;
 import edu.wpi.first.networktables.IntegerPublisher;
 import edu.wpi.first.networktables.NetworkTable;
@@ -46,6 +47,7 @@ public class Robot extends TimedRobot {
     private final DoublePublisher ntFrontDist;
     private final DoublePublisher ntBackDist;
     private final StringPublisher ntVisionStatus;
+    private final DoublePublisher ntVisionStdDev;
     private int visionTelemetryCounter = 0;
 
     public Robot() {
@@ -69,6 +71,7 @@ public class Robot extends TimedRobot {
         ntFrontDist   = visionTable.getDoubleTopic("Front Avg Dist").publish();
         ntBackDist    = visionTable.getDoubleTopic("Back Avg Dist").publish();
         ntVisionStatus = visionTable.getStringTopic("Status").publish();
+        ntVisionStdDev = visionTable.getDoubleTopic("Std Dev").publish();
     }
 
     /**
@@ -81,6 +84,10 @@ public class Robot extends TimedRobot {
         CommandScheduler.getInstance().run();
         // Fuse Limelight vision data into our position estimate
         updateVisionPoseEstimate();
+        // Clamp pose to field bounds — if odometry or vision drifts off-field,
+        // force it back. This prevents turret aiming, smart target, and trench
+        // detection from breaking when the pose is obviously wrong.
+        clampPoseToField();
         // Update calibration dashboard values
         m_robotContainer.updateCalibrationTelemetry();
     }
@@ -163,6 +170,35 @@ public class Robot extends TimedRobot {
     public void simulationPeriodic() {}
 
     /**
+     * If the robot's estimated pose is outside the field, clamp it back to the
+     * nearest valid position. This prevents downstream systems (turret aiming,
+     * smart target selection, trench detection) from breaking when odometry
+     * drifts or a bad vision estimate slips through.
+     *
+     * We only clamp X/Y — heading (rotation) is always from the Pigeon and
+     * doesn't need clamping.
+     */
+    private void clampPoseToField() {
+        Pose2d pose = m_robotContainer.drivetrain.getState().Pose;
+        double x = pose.getX();
+        double y = pose.getY();
+
+        // Field bounds with a tiny margin (robot center can be up to bumper-width
+        // outside the walls, but anything beyond 0.5m is clearly wrong)
+        double minX = -0.5;
+        double maxX = Constants.FieldConstants.FIELD_LENGTH_METERS + 0.5;
+        double minY = -0.5;
+        double maxY = Constants.FieldConstants.FIELD_WIDTH_METERS + 0.5;
+
+        if (x < minX || x > maxX || y < minY || y > maxY) {
+            double clampedX = Math.max(minX, Math.min(x, maxX));
+            double clampedY = Math.max(minY, Math.min(y, maxY));
+            m_robotContainer.drivetrain.resetPose(
+                new Pose2d(clampedX, clampedY, pose.getRotation()));
+        }
+    }
+
+    /**
      * VISION FUSION — gently corrects X/Y position using Limelight MegaTag2.
      *
      * PHILOSOPHY: The robot works fine on odometry alone. Vision is only here
@@ -239,8 +275,8 @@ public class Robot extends TimedRobot {
 
         // Only fuse if conditions are good and vision is enabled
         if (!spinning && !drivingFast && m_robotContainer.isVisionEnabled()) {
-            if (frontEst != null) fuseCameraEstimate(frontEst);
-            if (backEst != null) fuseCameraEstimate(backEst);
+            if (frontEst != null) fuseCameraEstimate(frontEst, translationalSpeed);
+            if (backEst != null) fuseCameraEstimate(backEst, translationalSpeed);
         }
     }
 
@@ -255,7 +291,7 @@ public class Robot extends TimedRobot {
      * estimates. These are accepted but barely trusted (std dev 3.0-5.0).
      * That's fine — over many loops, even light corrections add up.
      */
-    private void fuseCameraEstimate(LimelightHelpers.PoseEstimate estimate) {
+    private void fuseCameraEstimate(LimelightHelpers.PoseEstimate estimate, double translationalSpeed) {
         // No tags visible — nothing to fuse
         if (estimate.tagCount == 0) {
             return;
@@ -267,46 +303,67 @@ public class Robot extends TimedRobot {
             return;
         }
 
-        // Sanity check: reject poses that are obviously off the field
+        // Sanity check: reject poses that are obviously off the field.
+        // Tight bounds — even 0.5m off the field edge is clearly wrong.
         double x = estimate.pose.getX();
         double y = estimate.pose.getY();
-        if (x < -1.0 || x > 17.5 || y < -1.0 || y > 9.5) {
+        if (x < -0.5 || x > 17.0 || y < -0.5 || y > 8.6) {
             return;
         }
 
-        // Jump rejection: if vision says we're more than 1m from where odometry
+        // Jump rejection: if vision says we're more than 3m from where odometry
         // thinks we are, something is wrong — reject it. This prevents sudden
-        // teleports from a bad tag read. Real drift accumulates slowly, so a
-        // 1m gap means the vision estimate is almost certainly wrong.
+        // teleports from a bad tag read. We use 3m because odometry can drift
+        // significantly during a long match, and we need vision to be able to
+        // pull us back. If this is too loose, bad reads will get through but
+        // the high std devs will limit their impact.
         double distFromCurrent = m_robotContainer.drivetrain.getState().Pose
             .getTranslation().getDistance(estimate.pose.getTranslation());
-        if (distFromCurrent > 1.0) {
+        if (distFromCurrent > 3.0) {
             return;
         }
 
-        // Scale trust based on quality — CONSERVATIVE values.
-        // Higher std dev = less trust = vision is just a gentle nudge.
-        // The robot should drive fine without vision; this only fixes slow drift.
+        // Scale trust based on quality and robot speed.
+        //
+        // PHILOSOPHY: Trust vision a lot when the robot is slow/stationary
+        // (best time to correct drift), but barely trust it when driving fast
+        // (camera blur + lag makes estimates unreliable at speed).
+        //
+        // Single-tag estimates are always less trusted than multi-tag.
+        // At distance, single tags on a flexible mount are very noisy.
         double xyStdDev;
         if (estimate.tagCount >= 2) {
             // Multi-tag MegaTag2: the most reliable estimate we can get
             if (estimate.avgTagDist < 3.0) {
-                xyStdDev = 0.7;  // Close multi-tag — good confidence
+                xyStdDev = 0.3;  // Close multi-tag — high trust
             } else if (estimate.avgTagDist < 5.0) {
-                xyStdDev = 1.2;  // Medium distance multi-tag
+                xyStdDev = 0.7;  // Medium distance multi-tag
             } else {
-                xyStdDev = 2.0;  // Far multi-tag — still okay but less trusted
+                xyStdDev = 1.5;  // Far multi-tag — moderate trust
             }
         } else {
-            // Single tag: much less reliable, especially on a flexible mount
+            // Single tag: less reliable, especially far away or on a flexible mount.
             if (estimate.avgTagDist < 1.5) {
-                xyStdDev = 2.0;  // Very close single tag — decent
+                xyStdDev = 1.0;  // Very close single tag — decent trust
             } else if (estimate.avgTagDist < 2.5) {
-                xyStdDev = 3.5;  // Medium single tag — light nudge only
+                xyStdDev = 2.5;  // Medium single tag — moderate
             } else {
-                xyStdDev = 5.0;  // Far single tag (2.5-3m) — barely trust it
+                xyStdDev = 5.0;  // Far single tag (2.5-3m) — light nudge
             }
         }
+
+        // Speed-based scaling: trust vision fully when slow, barely when fast.
+        // At 0 m/s: multiplier = 1.0 (full trust from above)
+        // At 1 m/s: multiplier = 1.5
+        // At 2 m/s: multiplier = 3.0
+        // At 3 m/s: multiplier = 5.5 (almost ignored — we reject above 3 m/s anyway)
+        // This uses a quadratic curve so trust drops off faster at higher speeds.
+        double speedMultiplier = 1.0 + (translationalSpeed * translationalSpeed * 0.5)
+                                     + (translationalSpeed * 0.5);
+        xyStdDev *= speedMultiplier;
+
+        // Publish the std dev being used so you can see it on the Vision dashboard
+        ntVisionStdDev.set(xyStdDev);
 
         // Feed the measurement into the Kalman filter.
         // Rotation std dev = 9999999 means we NEVER trust vision for heading.
