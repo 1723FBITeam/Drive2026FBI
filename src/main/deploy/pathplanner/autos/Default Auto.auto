@@ -5,22 +5,15 @@
     "data": {
       "commands": [
         {
-          "type": "sequential",
+          "type": "path",
           "data": {
-            "commands": [
-              {
-                "type": "path",
-                "data": {
-                  "pathName": "Default Path"
-                }
-              },
-              {
-                "type": "named",
-                "data": {
-                  "name": "AutoShoot"
-                }
-              }
-            ]
+            "pathName": "Default Path"
+          }
+        },
+        {
+          "type": "named",
+          "data": {
+            "name": "AutoShoot"
           }
         }
       ]

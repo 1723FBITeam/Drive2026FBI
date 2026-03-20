@@ -165,6 +165,11 @@ public class RobotContainer {
         }, intakeSubsystem));
         NamedCommands.registerCommand("AutoShoot",
             new AutoShootCommand(turretSubsystem, shooterSubsystem, drivetrain));
+        // Named command to stop any shooting activity (used by PathPlanner events)
+        NamedCommands.registerCommand("StopShooting",
+            Commands.run(() -> {
+                shooterSubsystem.stopAll();
+            }, shooterSubsystem));
 
         // ===== AUTO CHOOSER =====
         // Builds a dropdown from all PathPlanner auto files in deploy/pathplanner/autos/
