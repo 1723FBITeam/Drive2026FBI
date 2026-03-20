@@ -201,15 +201,15 @@
               "data": {
                 "commands": [
                   {
-                    "type": "named",
-                    "data": {
-                      "name": "AutoShoot"
-                    }
-                  },
-                  {
                     "type": "wait",
                     "data": {
                       "waitTime": 5.0
+                    }
+                  },
+                  {
+                    "type": "named",
+                    "data": {
+                      "name": "AutoShoot"
                     }
                   }
                 ]
@@ -250,7 +250,7 @@
     {
       "name": "AutoShoot",
       "waypointRelativePos": 4.976660682226196,
-      "endWaypointRelativePos": null,
+      "endWaypointRelativePos": 6.0,
       "command": {
         "type": "named",
         "data": {

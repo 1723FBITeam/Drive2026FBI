@@ -69,7 +69,7 @@ public class ClimberSubsystem extends SubsystemBase {
 
     // Servo lock positions
     private static final double GEARBOX_LOCK_POS = 0.5;
-    private static final double GEARBOX_UNLOCK_POS = 0.0;
+    private static final double GEARBOX_UNLOCK_POS = 1.0;
 
     // Tracks whether gearbox is currently locked
     private boolean gearboxLocked = false;

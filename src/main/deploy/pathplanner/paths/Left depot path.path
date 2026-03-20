@@ -105,8 +105,8 @@
     },
     {
       "name": "AutoShoot",
-      "waypointRelativePos": 2.084380610412924,
-      "endWaypointRelativePos": null,
+      "waypointRelativePos": 2.089766606822262,
+      "endWaypointRelativePos": 3.0,
       "command": {
         "type": "named",
         "data": {
