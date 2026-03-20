@@ -1,12 +1,13 @@
 package frc.robot.subsystems;
 
 import com.ctre.phoenix6.configs.FeedbackConfigs;
+import com.ctre.phoenix6.configs.MotionMagicConfigs;
 import com.ctre.phoenix6.configs.MotorOutputConfigs;
 import com.ctre.phoenix6.configs.Slot0Configs;
 import com.ctre.phoenix6.configs.Slot1Configs;
 import com.ctre.phoenix6.configs.SoftwareLimitSwitchConfigs;
 import com.ctre.phoenix6.controls.DutyCycleOut;
-import com.ctre.phoenix6.controls.PositionVoltage;
+import com.ctre.phoenix6.controls.MotionMagicVoltage;
 import com.ctre.phoenix6.hardware.TalonFX;
 import com.ctre.phoenix6.signals.StaticFeedforwardSignValue;
 
@@ -100,13 +101,30 @@ public class TurretSubsystem extends SubsystemBase {
     private static final double AIM_DEADBAND_DEGREES = 1.0;
     private static final double AIM_DEADBAND_ROTATIONS = AIM_DEADBAND_DEGREES / 360.0;
 
-    // PositionVoltage = "go to this position and hold it"
-    // Normal aiming uses full PID gains (Slot 0)
-    private final PositionVoltage positionRequest = new PositionVoltage(0)
+    // ===== MOTION MAGIC SETTINGS =====
+    // Motion Magic generates a trapezoidal/S-curve velocity profile so the turret
+    // accelerates and decelerates smoothly. This prevents the small gear from
+    // skipping teeth on large moves (the old PositionVoltage would slam full voltage
+    // instantly, causing the motor to accelerate faster than the gear mesh could handle).
+    //
+    // All values are in MECHANISM units (turret rotations/sec) because
+    // SensorToMechanismRatio is configured. 1.0 rps = 360 deg/sec of turret.
+    //
+    // TUNING GUIDE:
+    //   - If teeth still skip: lower acceleration and/or cruise velocity
+    //   - If turret is too slow to track: raise cruise velocity first, then acceleration
+    //   - Jerk controls how abruptly acceleration changes (S-curve smoothing)
+    private static final double MOTION_MAGIC_CRUISE_VELOCITY = 0.25;  // rps (90 deg/sec) — gentle for loose belt
+    private static final double MOTION_MAGIC_ACCELERATION = 0.5;     // rps/s (reaches cruise in 0.5s)
+    private static final double MOTION_MAGIC_JERK = 5.0;             // rps/s/s (smooth S-curve, no sudden torque)
+
+    // MotionMagicVoltage = "go to this position using a smooth motion profile"
+    // Normal aiming uses Slot 0 (full PID gains)
+    private final MotionMagicVoltage positionRequest = new MotionMagicVoltage(0)
         .withEnableFOC(false);
 
-    // Slow position request for resets — uses Slot 1 with gentler gains
-    private final PositionVoltage resetPositionRequest = new PositionVoltage(0)
+    // Slower motion profile for resets — uses Slot 1 with gentler gains
+    private final MotionMagicVoltage resetPositionRequest = new MotionMagicVoltage(0)
         .withEnableFOC(false)
         .withSlot(1);
 
@@ -134,7 +152,8 @@ public class TurretSubsystem extends SubsystemBase {
             .withKI(0.5)
             .withKD(0.2)
             .withKS(0.5)
-            .withKV(0.0)
+            .withKV(1.3)   // Velocity feedforward for Motion Magic profile (V per mechanism rps)
+            .withKA(0.1)   // Acceleration feedforward for Motion Magic profile
             .withStaticFeedforwardSign(StaticFeedforwardSignValue.UseClosedLoopSign);
 
         // Slot 1: Gentle gains for reset moves (360° wrap-around).
@@ -147,6 +166,14 @@ public class TurretSubsystem extends SubsystemBase {
             .withKS(0.5)
             .withKV(0.5)
             .withStaticFeedforwardSign(StaticFeedforwardSignValue.UseClosedLoopSign);
+
+        // Motion Magic profile limits — prevents teeth skipping by controlling
+        // how fast the motor accelerates. Values are in mechanism units (turret rps)
+        // because SensorToMechanismRatio is configured below.
+        var motionMagic = new MotionMagicConfigs()
+            .withMotionMagicCruiseVelocity(MOTION_MAGIC_CRUISE_VELOCITY)
+            .withMotionMagicAcceleration(MOTION_MAGIC_ACCELERATION)
+            .withMotionMagicJerk(MOTION_MAGIC_JERK);
 
         // Tell motor about gear ratio so positions are in turret rotations
         var feedback = new FeedbackConfigs()
@@ -161,6 +188,7 @@ public class TurretSubsystem extends SubsystemBase {
 
         turretMotor.getConfigurator().apply(slot0);
         turretMotor.getConfigurator().apply(slot1);
+        turretMotor.getConfigurator().apply(motionMagic);
         turretMotor.getConfigurator().apply(feedback);
         turretMotor.getConfigurator().apply(softLimits);
 
