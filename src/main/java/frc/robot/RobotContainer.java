@@ -292,7 +292,7 @@ public class RobotContainer {
 
         // Y — jostle intake (co-pilot can trigger jostle for the driver)
         copilot.y()
-            .whileTrue(new RepeatCommand(intakeSubsystem.jostleCommand()));
+            .onTrue(intakeSubsystem.jostleCommand());
 
         // X — manually move elevator up slowly (hold to move)
         copilot.x()

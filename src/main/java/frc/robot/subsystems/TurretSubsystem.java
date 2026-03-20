@@ -323,7 +323,7 @@ public class TurretSubsystem extends SubsystemBase {
     // Used to estimate time-of-flight. Doesn't need to be exact — the iteration
     // converges even with a rough estimate. Tune by measuring actual shot speed
     // at a few distances and averaging.
-    private static final double SHOT_SPEED_MPS = 8.0;
+    private static final double SHOT_SPEED_MPS = 6.0;
     // Number of refinement iterations. 4 is plenty — error is negligible after 3.
     private static final int COMPENSATION_ITERATIONS = 4;
 
