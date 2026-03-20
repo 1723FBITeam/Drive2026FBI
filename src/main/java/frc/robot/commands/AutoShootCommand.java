@@ -127,8 +127,8 @@ public class AutoShootCommand extends Command {
             }
             if (Timer.getFPGATimestamp() - readyTimestamp >= FEED_DELAY) {
                 // We've been ready long enough — fire!
-                shooter.runFeeder(0.9);
-                shooter.runIndexer(0.8);
+                shooter.runFeeder(1.0);
+                shooter.runIndexer(1.0);
                 feeding = true;
             }
         } else {
