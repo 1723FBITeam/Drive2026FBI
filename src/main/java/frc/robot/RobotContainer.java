@@ -305,7 +305,7 @@ public class RobotContainer {
 
         // Y — toggle auto-shoot (co-pilot can trigger shooting for the driver)
         copilot.y()
-            .toggleOnTrue(new AutoShootCommand(turretSubsystem, shooterSubsystem, drivetrain, this::getSmartTarget, this::isTrajectoryPassingEnabled));
+            .whileTrue(new RepeatCommand(intakeSubsystem.jostleCommand()));
 
         // X — manually move elevator up slowly (hold to move)
         copilot.x()
