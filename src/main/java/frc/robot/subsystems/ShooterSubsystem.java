@@ -14,6 +14,7 @@ import edu.wpi.first.networktables.NetworkTable;
 import edu.wpi.first.networktables.NetworkTableInstance;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import frc.robot.Constants;
+import frc.robot.TrajectoryCalculations;
 import edu.wpi.first.math.MathUtil;
 import edu.wpi.first.math.interpolation.InterpolatingDoubleTreeMap;
 
@@ -191,17 +192,6 @@ public class ShooterSubsystem extends SubsystemBase {
     rightShooterMotor.setControl(flywheelVelocity.withVelocity(adjustedRPS));
   }
 
-  /**
-   * Run flywheels at a simple duty cycle (percentage of full power).
-   * Less accurate than RPS control — use for manual override only.
-   * @param speed Duty cycle from 0.0 (stopped) to 1.0 (full power)
-   */
-  public void runFlywheels(double speed) {
-    targetRPS = speed * 106.0; // Rough RPS estimate for telemetry (Kraken max ≈ 106 RPS)
-    leftShooterMotor.set(speed);
-    rightShooterMotor.set(speed);
-  }
-
   /** Stop both flywheel motors */
   public void stopFlywheels() {
     targetRPS = 0.0;
@@ -238,16 +228,6 @@ public class ShooterSubsystem extends SubsystemBase {
   }
 
   // ==================== COMBINED OPERATIONS ====================
-
-  /**
-   * Run the entire shooting system at once (flywheels + feeder + indexer).
-   * Uses simple duty cycle control — for auto-aim, use autoAim() instead.
-   */
-  public void runFullShooter(double speed) {
-    runFlywheels(speed);
-    runFeeder(0.8);
-    runIndexer(speed);
-  }
 
   /** Emergency stop — kills all shooter motors */
   public void stopAll() {
@@ -303,6 +283,41 @@ public class ShooterSubsystem extends SubsystemBase {
   public void autoAim(double distanceMeters) {
     double hoodPos = hoodTable.get(distanceMeters);      // Look up hood angle for this distance
     double rps = shooterRPSTable.get(distanceMeters);     // Look up flywheel speed for this distance
+    hoodPos = MathUtil.clamp(hoodPos, HOOD_MIN, HOOD_MAX); // Cap hood at 0.0–1.0
+    rps = MathUtil.clamp(rps, 0.0, 60.0);                  // Cap flywheel speed at 60 RPS
+    setHoodPosition(hoodPos);
+    runFlywheelsRPS(rps);
+  }
+
+  /**
+   * Physics-based auto-aim for passing shots (lobbing to a teammate).
+   * Instead of interpolation tables (calibrated for hub shots), this uses
+   * real projectile physics to calculate the required hood angle and flywheel
+   * speed for a given distance.
+   *
+   * @param distanceMeters horizontal distance from robot to the passing target
+   */
+  public void passAutoAim(double distanceMeters) {
+    double heightDiff = Constants.FieldConstants.PASSING_TARGET_HEIGHT_METERS
+                      - Constants.FieldConstants.TURRET_HEIGHT_METERS;
+    double aoa = TrajectoryCalculations.getPassingAngleOfAttack(distanceMeters);
+    double[] solution = TrajectoryCalculations.solve(distanceMeters, heightDiff, aoa);
+
+    if (solution == null) {
+      // Physics can't solve it — fall back to interpolation tables
+      autoAim(distanceMeters);
+      return;
+    }
+
+    double exitVelocity = solution[0]; // m/s
+    double launchAngle = solution[1];  // degrees
+
+    double hoodPos = TrajectoryCalculations.launchAngleToHoodPosition(launchAngle);
+    double rps = TrajectoryCalculations.exitVelocityToRPS(exitVelocity);
+
+    hoodPos = MathUtil.clamp(hoodPos, HOOD_MIN, HOOD_MAX);
+    rps = MathUtil.clamp(rps, 0.0, 60.0);
+
     setHoodPosition(hoodPos);
     runFlywheelsRPS(rps);
   }

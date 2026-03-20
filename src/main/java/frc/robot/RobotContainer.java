@@ -131,10 +131,6 @@ public class RobotContainer {
     // When OFF: co-pilot uses triggers to manually aim, B to fire.
     // When ON: turret auto-tracks the hub, triggers disabled.
     private boolean autoAimEnabled = true;
-    // Trench/practice mode: when true the hood is forced flat (0.0) so the robot
-    // can drive under the trench. Press the Trench toggle again to restore auto-aim.
-    private boolean trenchMode = false;
-
     // ===== VISION TOGGLE =====
     // When OFF, Limelight vision corrections are completely disabled.
     // Useful if vision is causing problems during a match.
@@ -147,18 +143,37 @@ public class RobotContainer {
     // Once committed, the robot must cross 1m past the midline to flip.
     private boolean passTargetIsLeft = true;
 
+    // ===== TRAJECTORY PHYSICS TOGGLE =====
+    // When true, passing shots use physics-based trajectory calculations.
+    // When false, passing shots use the same interpolation tables as hub shots.
+    // Co-pilot Back button toggles this at runtime.
+    private boolean useTrajectoryPassing = Constants.FieldConstants.USE_TRAJECTORY_PASSING_DEFAULT;
+
     public RobotContainer() {
         // ===== NAMED COMMANDS FOR PATHPLANNER =====
         // PathPlanner autonomous routines can trigger these by name.
-        // For example, a path can say "run Intake" at a certain point.
-        NamedCommands.registerCommand("TurretAim", Commands.run(() -> {
-            turretSubsystem.aimAtPose(drivetrain.getState().Pose, getSmartTarget(),
-                drivetrain.getState().Speeds);
-        }, turretSubsystem));
+        // The turret default command already auto-aims at the hub, so no
+        // separate turret tracking command is needed.
+
+        // AutoShoot — aims turret at hub, spins flywheels, feeds when ready.
+        // Hub-only targeting for auto (driver controls pass targeting in teleop).
+        NamedCommands.registerCommand("AutoShoot",
+            new AutoShootCommand(turretSubsystem, shooterSubsystem, drivetrain, this::getAllianceHub, () -> false));
+
+        // StopShooter — kills flywheels, feeder, indexer, and flattens hood.
+        // Use when leaving alliance zone to collect — don't waste power spinning.
+        NamedCommands.registerCommand("StopShooter", Commands.runOnce(() -> {
+            shooterSubsystem.stopAll();
+            shooterSubsystem.setHoodPosition(0.0);
+        }, shooterSubsystem));
+
+        // Intake — deploy intake and run rollers to collect balls.
         NamedCommands.registerCommand("Intake", Commands.run(() -> {
             intakeSubsystem.deployOut();
             intakeSubsystem.runIntake(0.35);
         }, intakeSubsystem));
+
+        // StopIntake — retract intake and stop rollers.
         NamedCommands.registerCommand("StopIntake", Commands.run(() -> {
             intakeSubsystem.stopIntake();
             intakeSubsystem.deployIn();
@@ -170,6 +185,11 @@ public class RobotContainer {
             Commands.run(() -> {
                 shooterSubsystem.stopAll();
             }, shooterSubsystem));
+
+        // Climb — start the climber level cycle for endgame.
+        NamedCommands.registerCommand("Climb", Commands.runOnce(() -> {
+            climber.toggleLevelCycle();
+        }));
 
         // ===== AUTO CHOOSER =====
         // Builds a dropdown from all PathPlanner auto files in deploy/pathplanner/autos/
@@ -205,7 +225,7 @@ public class RobotContainer {
         // Press once: aims turret, spins flywheels, feeds when ready
         // Press again: stops everything
         controller.y()
-            .toggleOnTrue(new AutoShootCommand(turretSubsystem, shooterSubsystem, drivetrain, this::getSmartTarget));
+            .toggleOnTrue(new AutoShootCommand(turretSubsystem, shooterSubsystem, drivetrain, this::getSmartTarget, this::isTrajectoryPassingEnabled));
 
         // X BUTTON — toggle intake on/off
         // Press once: deploys intake out, starts rollers
@@ -289,7 +309,7 @@ public class RobotContainer {
 
         // Y — toggle auto-shoot (co-pilot can trigger shooting for the driver)
         copilot.y()
-            .toggleOnTrue(new AutoShootCommand(turretSubsystem, shooterSubsystem, drivetrain, this::getSmartTarget));
+            .toggleOnTrue(new AutoShootCommand(turretSubsystem, shooterSubsystem, drivetrain, this::getSmartTarget, this::isTrajectoryPassingEnabled));
 
         // X — manually move elevator up slowly (hold to move)
         copilot.x()
@@ -346,7 +366,7 @@ public class RobotContainer {
         copilot.leftBumper()
             .whileTrue(Commands.run(() -> shooterSubsystem.nudgeHood(0.005)));
 
-        // Right Bumper — toggle climber gearbox lock/unlock
+        // Right Bumper — nudge hood servo DOWN (hold)
         copilot.rightBumper()
             .whileTrue(Commands.run(() -> shooterSubsystem.nudgeHood(-0.005)));
 
@@ -384,24 +404,6 @@ public class RobotContainer {
                 }
             }));
 
-        // Back — toggle Practice/Trench Mode (force hood flat to 0.0)
-        copilot.back()
-            .onTrue(new InstantCommand(() -> {
-                trenchMode = !trenchMode;
-                SmartDashboard.putBoolean("Trench Mode", trenchMode);
-                if (trenchMode) {
-                    // Force hood flat so we can go under trench
-                    shooterSubsystem.setHoodPosition(0.0);
-                    System.out.println(">>> Trench Mode: HOOD FLAT (0.0) ENABLED <<<");
-                } else {
-                    // Restore hood based on current distance to hub
-                    Pose2d pose = drivetrain.getState().Pose;
-                    double dist = pose.getTranslation().getDistance(getSmartTarget().getTranslation());
-                    shooterSubsystem.autoAim(dist);
-                    System.out.println(">>> Trench Mode: RESTORED AUTO HOOD <<<");
-                }
-            }));
-
         // Right Stick Press — toggle Limelight vision on/off
         // If vision is causing problems during a match, co-pilot can kill it instantly.
         copilot.rightStick()
@@ -410,7 +412,15 @@ public class RobotContainer {
                 System.out.println(">>> VISION: " + (visionEnabled ? "ON" : "OFF") + " <<<");
             }));
 
-        // ===== IDLE BEHAVIOR =====
+        // Back — toggle trajectory physics for passing shots
+        // OFF (default): passing shots use interpolation tables (safe, proven)
+        // ON: passing shots use physics-based trajectory (experimental, more accurate at range)
+        copilot.back()
+            .onTrue(new InstantCommand(() -> {
+                useTrajectoryPassing = !useTrajectoryPassing;
+                SmartDashboard.putBoolean("Trajectory Passing", useTrajectoryPassing);
+                System.out.println(">>> TRAJECTORY PASSING: " + (useTrajectoryPassing ? "ON" : "OFF") + " <<<");
+            }));        // ===== IDLE BEHAVIOR =====
         // When the robot is disabled, set swerve modules to idle (no power)
         final var idle = new SwerveRequest.Idle();
         RobotModeTriggers.disabled().whileTrue(
@@ -457,12 +467,15 @@ public class RobotContainer {
     }
 
     /**
-     * Manual elevator control command driven by the copilot's left stick Y-axis.
-     * Call this to bind a button to hold for manual control, e.g.:
-     *   copilot.rightStick().whileTrue(copilotManualElevatorControl());
+     * Returns the hub pose for the current alliance. Used by auto commands
+     * that should always aim at the hub regardless of field position.
      */
-    public Command copilotManualElevatorControl() {
-        return new RunCommand(() -> climber.runElevator(-copilot.getLeftY() * 0.6), climber);
+    public Pose2d getAllianceHub() {
+        var alliance = DriverStation.getAlliance();
+        if (alliance.isPresent() && alliance.get() == Alliance.Red) {
+            return Constants.FieldConstants.RED_HUB_POSE;
+        }
+        return Constants.FieldConstants.BLUE_HUB_POSE;
     }
 
     /**
@@ -545,10 +558,24 @@ public class RobotContainer {
 
         SmartDashboard.putBoolean("Auto-Aim", autoAimEnabled);
         SmartDashboard.putBoolean("Vision Enabled", visionEnabled);
+
+        // Zone debug — shows exactly what getSmartTarget decided
+        boolean inTrench = Constants.FieldConstants.isInTrenchZone(pose.getX());
+        SmartDashboard.putBoolean("In Trench", inTrench);
+        SmartDashboard.putString("Target Zone",
+            inTrench ? "TRENCH"
+            : target.equals(Constants.FieldConstants.BLUE_HUB_POSE) ? "BLUE HUB"
+            : target.equals(Constants.FieldConstants.RED_HUB_POSE) ? "RED HUB"
+            : "PASSING");
     }
 
     /** Returns true if the co-pilot has vision enabled (right stick toggle). */
     public boolean isVisionEnabled() {
         return visionEnabled;
+    }
+
+    /** Returns true if trajectory physics is enabled for passing shots (co-pilot Back toggle). */
+    public boolean isTrajectoryPassingEnabled() {
+        return useTrajectoryPassing;
     }
 }

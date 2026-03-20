@@ -3,8 +3,6 @@ package frc.robot.commands;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Translation2d;
 import edu.wpi.first.math.kinematics.ChassisSpeeds;
-import edu.wpi.first.wpilibj.DriverStation;
-import edu.wpi.first.wpilibj.DriverStation.Alliance;
 import edu.wpi.first.wpilibj.Timer;
 import edu.wpi.first.wpilibj2.command.Command;
 import frc.robot.Constants;
@@ -46,33 +44,24 @@ public class AutoShootCommand extends Command {
     private final Supplier<Pose2d> targetSupplier;
     private Pose2d targetPose = Constants.FieldConstants.BLUE_HUB_POSE;
 
+    // Whether to use trajectory physics for passing shots (runtime toggle from co-pilot)
+    private final Supplier<Boolean> trajectoryPassingSupplier;
+
     /**
-     * Creates an AutoShootCommand with a dynamic target supplier.
-     * The supplier is called every loop so the target updates as the robot
-     * moves between field zones.
+     * Creates an AutoShootCommand with a dynamic target supplier and trajectory toggle.
+     * The suppliers are called every loop so behavior updates in real time.
+     *
+     * @param trajectoryPassingSupplier returns true to use physics-based passing, false for interp tables
      */
     public AutoShootCommand(TurretSubsystem turret, ShooterSubsystem shooter,
-                            CommandSwerveDrivetrain drivetrain, Supplier<Pose2d> targetSupplier) {
+                            CommandSwerveDrivetrain drivetrain, Supplier<Pose2d> targetSupplier,
+                            Supplier<Boolean> trajectoryPassingSupplier) {
         this.turret = turret;
         this.shooter = shooter;
         this.drivetrain = drivetrain;
         this.targetSupplier = targetSupplier;
+        this.trajectoryPassingSupplier = trajectoryPassingSupplier;
         addRequirements(turret, shooter);
-    }
-
-    /**
-     * Convenience constructor — falls back to alliance-based hub targeting
-     * (for PathPlanner autos that don't have access to getSmartTarget).
-     */
-    public AutoShootCommand(TurretSubsystem turret, ShooterSubsystem shooter,
-                            CommandSwerveDrivetrain drivetrain) {
-        this(turret, shooter, drivetrain, () -> {
-            var alliance = DriverStation.getAlliance();
-            if (alliance.isPresent() && alliance.get() == Alliance.Red) {
-                return Constants.FieldConstants.RED_HUB_POSE;
-            }
-            return Constants.FieldConstants.BLUE_HUB_POSE;
-        });
     }
 
     /** Called once when the command starts */
@@ -108,8 +97,17 @@ public class AutoShootCommand extends Command {
             shooter.setHoodPosition(0.0);
             shooter.stopFlywheels();
         } else if (distance > 0.5) {
-            // autoAim() uses the interpolation tables in ShooterSubsystem
-            shooter.autoAim(distance);
+            // Determine if this is a passing shot or a hub shot.
+            // Hub shots use calibrated interpolation tables; passing shots use
+            // physics-based trajectory calculations for better accuracy at range
+            // (when enabled — toggle USE_TRAJECTORY_PASSING in Constants).
+            boolean isPassingShot = !targetPose.equals(Constants.FieldConstants.BLUE_HUB_POSE)
+                                 && !targetPose.equals(Constants.FieldConstants.RED_HUB_POSE);
+            if (isPassingShot && trajectoryPassingSupplier.get()) {
+                shooter.passAutoAim(distance);
+            } else {
+                shooter.autoAim(distance);
+            }
         }
 
         // STEP 4: Check if we're ready to fire

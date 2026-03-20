@@ -3,6 +3,7 @@ package frc.robot.subsystems;
 import com.ctre.phoenix6.configs.FeedbackConfigs;
 import com.ctre.phoenix6.configs.MotorOutputConfigs;
 import com.ctre.phoenix6.configs.Slot0Configs;
+import com.ctre.phoenix6.configs.Slot1Configs;
 import com.ctre.phoenix6.configs.SoftwareLimitSwitchConfigs;
 import com.ctre.phoenix6.controls.DutyCycleOut;
 import com.ctre.phoenix6.controls.PositionVoltage;
@@ -81,8 +82,7 @@ public class TurretSubsystem extends SubsystemBase {
     // How close the turret must be to the target to consider the reset "done"
     // 0.02 rotations = ~7 degrees
     private static final double RESET_DONE_TOLERANCE = 0.02;
-    // Speed multiplier during reset (0.3 = 30% of normal PID output)
-    private static final double RESET_SPEED_FRACTION = 0.3;
+
 
     // Tracks whether the turret is currently doing a long reset move
     private boolean isResetting = false;
@@ -97,9 +97,14 @@ public class TurretSubsystem extends SubsystemBase {
     private static final double AIM_NUDGE_ROTATIONS = AIM_NUDGE_DEGREES / 360.0;
 
     // PositionVoltage = "go to this position and hold it"
-    // Normal aiming uses full PID gains
+    // Normal aiming uses full PID gains (Slot 0)
     private final PositionVoltage positionRequest = new PositionVoltage(0)
         .withEnableFOC(false);
+
+    // Slow position request for resets — uses Slot 1 with gentler gains
+    private final PositionVoltage resetPositionRequest = new PositionVoltage(0)
+        .withEnableFOC(false)
+        .withSlot(1);
 
     // DutyCycleOut = simple "spin at X% power" for manual control and resets
     private final DutyCycleOut manualRequest = new DutyCycleOut(0);
@@ -124,8 +129,19 @@ public class TurretSubsystem extends SubsystemBase {
             .withKP(30.0)
             .withKI(0.5)
             .withKD(0.2)
-            .withKS(0.6)
+            .withKS(0.5)
             .withKV(0.0)
+            .withStaticFeedforwardSign(StaticFeedforwardSignValue.UseClosedLoopSign);
+
+        // Slot 1: Gentle gains for reset moves (360° wrap-around).
+        // Lower KP = slower approach, higher KD = more damping to prevent overshoot.
+        // KV adds velocity feedforward for smoother motion.
+        var slot1 = new Slot1Configs()
+            .withKP(8.0)
+            .withKI(0.0)
+            .withKD(0.5)
+            .withKS(0.5)
+            .withKV(0.5)
             .withStaticFeedforwardSign(StaticFeedforwardSignValue.UseClosedLoopSign);
 
         // Tell motor about gear ratio so positions are in turret rotations
@@ -140,6 +156,7 @@ public class TurretSubsystem extends SubsystemBase {
             .withReverseSoftLimitThreshold(MIN_MECHANISM_ROTATIONS);
 
         turretMotor.getConfigurator().apply(slot0);
+        turretMotor.getConfigurator().apply(slot1);
         turretMotor.getConfigurator().apply(feedback);
         turretMotor.getConfigurator().apply(softLimits);
 
@@ -286,21 +303,20 @@ public class TurretSubsystem extends SubsystemBase {
         double moveDistance = Math.abs(targetMechRot - currentPos);
 
         if (moveDistance > RESET_THRESHOLD_ROTATIONS) {
-            // Big move — this is a reset (wrapping around). Go slower.
+            // Big move — this is a reset (wrapping around).
+            // Use Slot 1 (gentle PID) so it approaches smoothly without overshoot.
             isResetting = true;
-            double direction = Math.signum(targetMechRot - currentPos);
-            turretMotor.setControl(manualRequest.withOutput(direction * RESET_SPEED_FRACTION));
+            turretMotor.setControl(resetPositionRequest.withPosition(targetMechRot));
         } else {
             // Normal aim — check if a previous reset is done
             if (isResetting && moveDistance < RESET_DONE_TOLERANCE) {
-                isResetting = false; // Reset complete, back to normal
+                isResetting = false; // Reset complete, switch to normal PID
             }
-            // If still resetting (getting close but not done yet), keep slow speed
             if (isResetting) {
-                double direction = Math.signum(targetMechRot - currentPos);
-                turretMotor.setControl(manualRequest.withOutput(direction * RESET_SPEED_FRACTION));
+                // Still resetting but getting close — stay on gentle PID
+                turretMotor.setControl(resetPositionRequest.withPosition(targetMechRot));
             } else {
-                // Normal closed-loop position control at full speed
+                // Normal closed-loop position control (Slot 0, full speed)
                 turretMotor.setControl(positionRequest.withPosition(targetMechRot));
             }
         }
