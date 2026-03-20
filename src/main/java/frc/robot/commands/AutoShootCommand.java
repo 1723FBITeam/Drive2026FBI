@@ -116,6 +116,10 @@ public class AutoShootCommand extends Command {
         // BUT NOT while the turret is resetting or in the trench zone
         if (flywheelsReady && !turretResetting && !inTrench) {
             shooter.runIndexer(0.7);
+        } else if (!feeding) {
+            // Stop indexer when conditions aren't met (unless we're actively feeding,
+            // which manages the indexer itself)
+            shooter.stopIndexer();
         }
 
         // Only feed when turret is aimed, flywheels are at speed, NOT resetting, and NOT in trench

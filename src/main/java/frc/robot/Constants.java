@@ -42,7 +42,7 @@ public class Constants {
 
         // Hood servo travel limits (0.0 = flat, 1.0 = max angle up)
         public static final double HOOD_MIN = 0.0;
-        public static final double HOOD_MAX = 1.0;
+        public static final double HOOD_MAX = 0.85;
     }
 
     /**
@@ -129,6 +129,19 @@ public class Constants {
         public static boolean isInTrenchZone(double robotX) {
             return (robotX >= BLUE_TRENCH_MIN_X && robotX <= BLUE_TRENCH_MAX_X)
                 || (robotX >= RED_TRENCH_MIN_X && robotX <= RED_TRENCH_MAX_X);
+        }
+
+        // Hood position threshold for trench clearance — if the hood is above this
+        // value near the trench, the drivetrain slows down to give the servo time to retract.
+        // Set this to the max hood position that still clears the trench (0.0 = fully flat).
+        public static final double TRENCH_HOOD_THRESHOLD = 0.05;
+        private static final double TRENCH_APPROACH_MARGIN = 0.5; // meters beyond the normal buffer
+
+        /** Returns true if the robot is approaching a trench zone (wider than isInTrenchZone).
+         *  Used to auto-slow the drivetrain so the hood servo has time to retract. */
+        public static boolean isNearTrenchZone(double robotX) {
+            return (robotX >= BLUE_TRENCH_MIN_X - TRENCH_APPROACH_MARGIN && robotX <= BLUE_TRENCH_MAX_X + TRENCH_APPROACH_MARGIN)
+                || (robotX >= RED_TRENCH_MIN_X - TRENCH_APPROACH_MARGIN && robotX <= RED_TRENCH_MAX_X + TRENCH_APPROACH_MARGIN);
         }
 
         // ===== HUB POSITIONS =====

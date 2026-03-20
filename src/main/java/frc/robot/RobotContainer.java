@@ -126,11 +126,6 @@ public class RobotContainer {
     private edu.wpi.first.networktables.StringPublisher calAlliance;
     private int telemetryCounter = 0;
 
-    // ===== AUTO-AIM MODE =====
-    // Tracks whether auto-aim is active. Start button on co-pilot toggles this.
-    // When OFF: co-pilot uses triggers to manually aim, B to fire.
-    // When ON: turret auto-tracks the hub, triggers disabled.
-    private boolean autoAimEnabled = true;
     // ===== VISION TOGGLE =====
     // When OFF, Limelight vision corrections are completely disabled.
     // Useful if vision is causing problems during a match.
@@ -144,9 +139,10 @@ public class RobotContainer {
     private boolean passTargetIsLeft = true;
 
     // ===== TRAJECTORY PHYSICS TOGGLE =====
-    // When true, passing shots use physics-based trajectory calculations.
-    // When false, passing shots use the same interpolation tables as hub shots.
+    // When true, ALL shots (hub and passing) use physics-based trajectory calculations.
+    // When false, ALL shots use the interpolation tables.
     // Co-pilot Back button toggles this at runtime.
+    // During auto, interpolation tables are always used regardless of this toggle.
     private boolean useTrajectoryPassing = Constants.FieldConstants.USE_TRAJECTORY_PASSING_DEFAULT;
 
     public RobotContainer() {
@@ -278,32 +274,23 @@ public class RobotContainer {
         // ===================================================================
         //                 CO-PILOT CONTROLLER (USB port 1)
         // ===================================================================
-        // Two modes controlled by Start button:
+        // Turret always auto-tracks the hub. Co-pilot handles tuning,
+        // elevator, intake jostle, and emergency stop.
         //
-        // AUTO-AIM ON (default):
-        //   Turret auto-tracks hub. Triggers disabled.
-        //   Y = toggle auto-shoot (aim + spin + feed when ready)
-        //   X = toggle intake
-        //   A = jostle intake
+        //   Y = jostle intake (hold)
+        //   X = move elevator up (hold)
+        //   A = move elevator down (hold)
         //   B = emergency stop shooter
         //   Bumpers = nudge hood up/down
-        //   D-pad L/R = aim offset ±0.5°
+        //   D-pad L/R = aim offset ±1°
         //   D-pad U/D = power offset ±1 RPS
-        //   Back = reset offsets
-        //
-        // AUTO-AIM OFF (manual mode):
-        //   Turret controlled by triggers. Flywheels still auto-calculated.
-        //   Triggers = manually aim turret left/right
-        //   B = hold to fire (spin flywheels + feed)
-        //   Bumpers = nudge hood up/down
-        //   D-pad still works for offsets
-        //   Back = reset offsets
-        //   Start again = re-enable auto-aim
+        //   Right Stick Press = toggle vision on/off
+        //   Back = toggle trajectory physics (all shots)
         // ===================================================================
 
-        // --- Face buttons (same in both modes) ---
+        // --- Face buttons ---
 
-        // Y — toggle auto-shoot (co-pilot can trigger shooting for the driver)
+        // Y — jostle intake (co-pilot can trigger jostle for the driver)
         copilot.y()
             .whileTrue(new RepeatCommand(intakeSubsystem.jostleCommand()));
 
@@ -323,40 +310,11 @@ public class RobotContainer {
                 climber
             ));
 
-        // B — in auto mode: emergency stop. In manual mode: hold to fire.
+        // B — emergency stop all shooter motors
         copilot.b()
-            .whileTrue(Commands.either(
-                // AUTO-AIM ON: emergency stop (instant, not held)
-                new InstantCommand(() -> shooterSubsystem.stopAll()),
-                // AUTO-AIM OFF (manual mode): spin flywheels at distance-based speed + feed
-                Commands.run(() -> {
-                    Pose2d pose = drivetrain.getState().Pose;
-                    double dist = pose.getTranslation().getDistance(getSmartTarget().getTranslation());
-                    if (dist > 0.5) {
-                        shooterSubsystem.autoAim(dist);
-                    }
-                    shooterSubsystem.runFeeder(0.85);
-                    shooterSubsystem.runIndexer(0.7);
-                }).finallyDo(() -> {
-                    shooterSubsystem.stopFeeder();
-                    shooterSubsystem.stopIndexer();
-                }),
-                () -> autoAimEnabled
-            ));
+            .onTrue(new InstantCommand(() -> shooterSubsystem.stopAll()));
 
-        // --- Triggers (manual turret — only when auto-aim is OFF) ---
-
-        // Left Trigger — manually rotate turret CCW/left (only in manual mode)
-        copilot.leftTrigger(0.05).and(() -> !autoAimEnabled).whileTrue(Commands.run(
-            () -> turretSubsystem.rotate(copilot.getLeftTriggerAxis() * 0.5),
-            turretSubsystem).finallyDo(() -> turretSubsystem.stop()));
-
-        // Right Trigger — manually rotate turret CW/right (only in manual mode)
-        copilot.rightTrigger(0.05).and(() -> !autoAimEnabled).whileTrue(Commands.run(
-            () -> turretSubsystem.rotate(-copilot.getRightTriggerAxis() * 0.5),
-            turretSubsystem).finallyDo(() -> turretSubsystem.stop()));
-
-        // --- Bumpers (hood nudge — works in both modes) ---
+        // --- Bumpers (hood nudge) ---
 
         // Left Bumper — nudge hood servo UP (hold)
         copilot.leftBumper()
@@ -368,11 +326,11 @@ public class RobotContainer {
 
         // --- D-pad (live tuning offsets — works in both modes) ---
 
-        // D-pad Left — nudge turret aim left (CCW) by 0.5 degrees
+        // D-pad Left — nudge turret aim left (CCW) by 1 degree
         copilot.povLeft()
             .onTrue(new InstantCommand(() -> turretSubsystem.nudgeAimLeft()));
 
-        // D-pad Right — nudge turret aim right (CW) by 0.5 degrees
+        // D-pad Right — nudge turret aim right (CW) by 1 degree
         copilot.povRight()
             .onTrue(new InstantCommand(() -> turretSubsystem.nudgeAimRight()));
 
@@ -386,20 +344,6 @@ public class RobotContainer {
 
         // --- Menu buttons ---
 
-        // Start — toggle auto-aim on/off
-        // When OFF: turret stops auto-tracking, co-pilot uses triggers to aim manually
-        // When ON: turret resumes auto-tracking the hub
-        copilot.start()
-            .onTrue(new InstantCommand(() -> {
-                autoAimEnabled = !autoAimEnabled;
-                if (autoAimEnabled) {
-                    System.out.println(">>> AUTO-AIM: ON <<<");
-                } else {
-                    System.out.println(">>> AUTO-AIM: OFF (manual mode) <<<");
-                    turretSubsystem.stop(); // Stop turret so triggers can take over
-                }
-            }));
-
         // Right Stick Press — toggle Limelight vision on/off
         // If vision is causing problems during a match, co-pilot can kill it instantly.
         copilot.rightStick()
@@ -408,9 +352,10 @@ public class RobotContainer {
                 System.out.println(">>> VISION: " + (visionEnabled ? "ON" : "OFF") + " <<<");
             }));
 
-        // Back — toggle trajectory physics for passing shots
-        // OFF (default): passing shots use interpolation tables (safe, proven)
-        // ON: passing shots use physics-based trajectory (experimental, more accurate at range)
+        // Back — toggle trajectory physics for ALL shots (hub and passing)
+        // OFF (default): all shots use interpolation tables (safe, proven)
+        // ON: all shots use physics-based trajectory (experimental, more accurate at range)
+        // During auto, interpolation tables are always used regardless of this toggle.
         copilot.back()
             .onTrue(new InstantCommand(() -> {
                 useTrajectoryPassing = !useTrajectoryPassing;
@@ -434,26 +379,36 @@ public class RobotContainer {
         // ===== DEFAULT COMMANDS =====
         // Default commands run whenever no other command is using that subsystem.
 
-        // Turret default: auto-aim at hub when enabled, idle when manual mode
+        // Turret default: always auto-aim at the smart target
         turretSubsystem.setDefaultCommand(new RunCommand(
-            () -> {
-                if (autoAimEnabled) {
-                    turretSubsystem.aimAtPose(drivetrain.getState().Pose, getSmartTarget(),
-                        drivetrain.getState().Speeds);
-                }
-                // When auto-aim is off, turret just holds position (no command)
-                // Co-pilot uses triggers to manually aim
-            },
+            () -> turretSubsystem.aimAtPose(drivetrain.getState().Pose, getSmartTarget(),
+                        drivetrain.getState().Speeds),
             turretSubsystem));
 
         // Drivetrain default: drive using joystick input with cubic curve + slew rate limiting
         // The 0.75 and 0.85 multipliers cap max speed for safety during testing
         // (change to 1.0 for full speed at competition)
+        //
+        // TRENCH SAFETY: When approaching the trench zone with the hood up,
+        // auto-slow to 40% to give the servo time to retract before impact.
+        // Only affects teleop joystick driving — auto paths are unaffected.
         drivetrain.setDefaultCommand(
-            drivetrain.applyRequest(() -> drive
-                .withVelocityX(xLimiter.calculate(joystickCurve(-controller.getLeftY()) * 0.75 * MaxSpeed))
-                .withVelocityY(yLimiter.calculate(joystickCurve(-controller.getLeftX()) * 0.75 * MaxSpeed))
-                .withRotationalRate(rotationLimiter.calculate(joystickCurve(-controller.getRightX()) * 0.85 * MaxAngularRate))));
+            drivetrain.applyRequest(() -> {
+                double speedScale = 0.75;
+
+                // Slow down near trench if hood is raised
+                double robotX = drivetrain.getState().Pose.getX();
+                boolean nearTrench = Constants.FieldConstants.isInTrenchZone(robotX)
+                    || Constants.FieldConstants.isNearTrenchZone(robotX);
+                if (nearTrench && shooterSubsystem.getHoodPosition() > Constants.FieldConstants.TRENCH_HOOD_THRESHOLD) {
+                    speedScale = 0.4; // Slow enough for hood servo to retract
+                }
+
+                return drive
+                    .withVelocityX(xLimiter.calculate(joystickCurve(-controller.getLeftY()) * speedScale * MaxSpeed))
+                    .withVelocityY(yLimiter.calculate(joystickCurve(-controller.getLeftX()) * speedScale * MaxSpeed))
+                    .withRotationalRate(rotationLimiter.calculate(joystickCurve(-controller.getRightX()) * 0.85 * MaxAngularRate));
+            }));
     }
 
     /** Returns the selected autonomous command from the dashboard dropdown */
@@ -551,7 +506,6 @@ public class RobotContainer {
             ? (alliance.get() == Alliance.Red ? "RED" : "BLUE")
             : "NOT SET");
 
-        SmartDashboard.putBoolean("Auto-Aim", autoAimEnabled);
         SmartDashboard.putBoolean("Vision Enabled", visionEnabled);
 
         // Zone debug — shows exactly what getSmartTarget decided

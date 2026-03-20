@@ -17,17 +17,14 @@ The driver handles driving, shooting, intake, and field reset.
 
 ## Controller Layout — Co-Pilot (Controller 2, USB port 1)
 
-The co-pilot handles shooting overrides, elevator, tuning, and manual overrides.
-Two modes controlled by Start button:
-
-### Auto-Aim ON (default)
-Turret auto-tracks the hub. Triggers disabled.
+The co-pilot handles shooting overrides, elevator, tuning, and intake jostle.
+Turret always auto-tracks the target.
 
 | Button/Input     | Action                                           |
 |------------------|--------------------------------------------------|
-| Y Button         | Toggle auto-shoot on/off                         |
-| X Button         | Move elevator up slowly (hold)                   |
-| A Button         | Move elevator down slowly (hold)                 |
+| Y Button (hold)  | Jostle intake (unstick balls)                    |
+| X Button (hold)  | Move elevator up slowly                          |
+| A Button (hold)  | Move elevator down slowly                        |
 | B Button         | Emergency stop all shooter motors                |
 | Left Bumper      | Nudge hood servo up (hold)                       |
 | Right Bumper     | Nudge hood servo down (hold)                     |
@@ -35,22 +32,8 @@ Turret auto-tracks the hub. Triggers disabled.
 | D-pad Right      | Nudge turret aim right (CW) by 1 degree           |
 | D-pad Up         | Increase shooter power by 1 RPS (~60 RPM)        |
 | D-pad Down       | Decrease shooter power by 1 RPS (~60 RPM)        |
-| Start            | Toggle auto-aim OFF (enter manual mode)          |
 | Right Stick Press| Toggle Limelight vision on/off                   |
-| Back             | Toggle trajectory passing mode (physics vs tables)|
-
-### Auto-Aim OFF (manual mode)
-Co-pilot aims turret with triggers. Flywheels still auto-calculated from distance.
-
-| Button/Input     | Action                                           |
-|------------------|--------------------------------------------------|
-| Left Trigger     | Manually rotate turret left (pressure = speed)   |
-| Right Trigger    | Manually rotate turret right (pressure = speed)  |
-| B Button (hold)  | Fire — spins flywheels + feeds ball              |
-| Left Bumper      | Nudge hood servo up (hold)                       |
-| Right Bumper     | Nudge hood servo down (hold)                     |
-| D-pad            | Same offsets as auto mode                        |
-| Start            | Toggle auto-aim back ON                          |
+| Back             | Toggle trajectory mode for all shots (physics vs tables)|
 
 Aim/power offsets accumulate — pressing D-pad Left 3 times shifts aim by 3 degrees. Current offsets are shown on the Calibration tab in Shuffleboard.
 
@@ -153,7 +136,7 @@ The co-pilot Back button toggles between these two methods at runtime (defaults 
 The field is divided into zones, and the robot automatically changes what it aims at:
 
 - **Own Alliance Zone** (0–4.03m from your wall): Aim at the hub. Normal shooting.
-- **Trench Zone** (±0.5m around the trench arms at ~4.6m blue / ~11.9m red): Hood automatically flattens to 0.0 so the robot fits under the trench (22.25in / 56.5cm clearance). Flywheels stop, no feeding.
+- **Trench Zone** (±0.55m around the trench arms at ~4.6m blue / ~11.9m red): Hood automatically flattens to 0.0 so the robot fits under the trench (22.25in / 56.5cm clearance). Flywheels stop, no feeding. The drivetrain auto-slows to 40% when approaching the trench with the hood up, giving the servo time to retract.
 - **Neutral Zone / Opponent's Side** (past the alliance line): Aim at a passing target — lob the ball 0.5m inside our alliance line, 2.25m from whichever side wall is closer. Left/right side has 1m hysteresis so the target doesn't flip-flop near the Y midline.
 
 The target updates every 20ms as the robot moves, so transitions between zones are seamless. The driver presses Y once and the system handles everything automatically. This logic lives in `RobotContainer.java` → `getSmartTarget()`. Zone boundaries and positions are defined in `Constants.java` → `FieldConstants`.
@@ -173,13 +156,15 @@ Instead of a simple "predict where the robot will be in X seconds" approach, the
 This is more accurate than a fixed time offset because the compensation amount adapts to the actual shot distance. The same compensated target is used for both turret aiming and distance-based hood/flywheel calculations, keeping everything consistent.
 
 **Key constants in `TurretSubsystem.java`:**
-- `SHOT_SPEED_MPS` (default 10.0 m/s) — estimated average ball speed in flight. Tune by measuring actual shot speed.
+- `SHOT_SPEED_MPS` (default 8.0 m/s) — estimated average ball speed in flight. Controls how much the aim compensates for robot movement.
 - `COMPENSATION_ITERATIONS` (default 4) — number of refinement passes. 4 is plenty.
+
+**Important:** The drivetrain reports robot-relative speeds, so the compensation code converts them to field-relative using the robot's heading before applying the offset.
 
 **How to tune:**
 1. Drive sideways at a consistent speed past the hub with auto-shoot on
-2. If shots consistently land **behind** you (where you were): increase `SHOT_SPEED_MPS` (ball is faster than estimated, so less compensation needed — wait, actually decrease it so flight time increases and compensation increases)
-3. If shots consistently land **ahead** of you: increase `SHOT_SPEED_MPS` (shorter estimated flight time = less compensation)
+2. If the ball drifts in the direction you're driving (under-compensating): **lower** `SHOT_SPEED_MPS` (longer flight time = more correction)
+3. If the ball drifts opposite to your driving direction (over-compensating): **raise** `SHOT_SPEED_MPS` (shorter flight time = less correction)
 4. Adjust in increments of 1.0 m/s
 
 ## PathPlanner Named Commands

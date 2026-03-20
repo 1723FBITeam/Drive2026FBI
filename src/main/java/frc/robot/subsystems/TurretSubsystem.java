@@ -116,9 +116,9 @@ public class TurretSubsystem extends SubsystemBase {
     //   - If teeth still skip: lower acceleration and/or cruise velocity
     //   - If turret is too slow to track: raise cruise velocity first, then acceleration
     //   - Jerk controls how abruptly acceleration changes (S-curve smoothing)
-    private static final double MOTION_MAGIC_CRUISE_VELOCITY = 0.4;   // rps (144 deg/sec)
-    private static final double MOTION_MAGIC_ACCELERATION = 1.0;     // rps/s (reaches cruise in 0.4s)
-    private static final double MOTION_MAGIC_JERK = 10.0;            // rps/s/s (smooth S-curve)
+    private static final double MOTION_MAGIC_CRUISE_VELOCITY = 0.55;  // rps (198 deg/sec)
+    private static final double MOTION_MAGIC_ACCELERATION = 1.5;     // rps/s (reaches cruise in 0.37s)
+    private static final double MOTION_MAGIC_JERK = 15.0;            // rps/s/s (smooth S-curve)
 
     // MotionMagicVoltage = "go to this position using a smooth motion profile"
     // Normal aiming uses Slot 0 (full PID gains)

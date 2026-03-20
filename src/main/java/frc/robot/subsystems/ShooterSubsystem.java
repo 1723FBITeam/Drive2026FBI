@@ -377,7 +377,7 @@ public class ShooterSubsystem extends SubsystemBase {
     // Force hood flat when in a trench zone, regardless of what command is running.
     // This protects against the hood being left up during driving-only segments.
     if (Constants.FieldConstants.isInTrenchZone(robotXSupplier.getAsDouble())) {
-      if (currentHoodPosition > 0.0) {
+      if (currentHoodPosition > Constants.FieldConstants.TRENCH_HOOD_THRESHOLD) {
         setHoodPosition(0.0);
       }
     }
