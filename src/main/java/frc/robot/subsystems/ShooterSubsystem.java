@@ -18,6 +18,8 @@ import frc.robot.TrajectoryCalculations;
 import edu.wpi.first.math.MathUtil;
 import edu.wpi.first.math.interpolation.InterpolatingDoubleTreeMap;
 
+import java.util.function.DoubleSupplier;
+
 /**
  * ShooterSubsystem — controls everything needed to score a note:
  *   - Two flywheel motors (spin up to launch the note)
@@ -69,6 +71,12 @@ public class ShooterSubsystem extends SubsystemBase {
 
   // Tracks what speed we asked the flywheels to spin at (for ready-to-shoot check)
   private double targetRPS = 0.0;
+
+  // ===== TRENCH SAFETY =====
+  // Robot X position supplier — set by RobotContainer so periodic() can
+  // force the hood flat when driving through a trench zone, even if no
+  // shooting command is active.
+  private DoubleSupplier robotXSupplier = () -> 0.0;
 
   // ===== POWER OFFSET (adjusted by co-pilot controller 2) =====
   // This offset is added to every flywheel RPS command.
@@ -254,6 +262,15 @@ public class ShooterSubsystem extends SubsystemBase {
   }
 
   /**
+   * Set the robot X position supplier for trench safety.
+   * Call this once from RobotContainer after construction.
+   * periodic() uses this to force the hood flat in trench zones.
+   */
+  public void setRobotXSupplier(DoubleSupplier supplier) {
+    this.robotXSupplier = supplier;
+  }
+
+  /**
    * Are the flywheels spinning fast enough to shoot?
    * Returns true when both flywheels are within 5% of the target speed.
    * The AutoShootCommand checks this before feeding a note.
@@ -356,8 +373,18 @@ public class ShooterSubsystem extends SubsystemBase {
 
   @Override
   public void periodic() {
+    // ===== TRENCH SAFETY (runs every loop, 50Hz) =====
+    // Force hood flat when in a trench zone, regardless of what command is running.
+    // This protects against the hood being left up during driving-only segments.
+    if (Constants.FieldConstants.isInTrenchZone(robotXSupplier.getAsDouble())) {
+      if (currentHoodPosition > 0.0) {
+        setHoodPosition(0.0);
+      }
+    }
+
+    // Telemetry at ~10Hz
     telemetryCounter++;
-    if (telemetryCounter % 5 != 0) return; // ~10Hz
+    if (telemetryCounter % 5 != 0) return;
 
     ntLeftVel.set(leftShooterMotor.getVelocity().getValueAsDouble());
     ntRightVel.set(rightShooterMotor.getVelocity().getValueAsDouble());

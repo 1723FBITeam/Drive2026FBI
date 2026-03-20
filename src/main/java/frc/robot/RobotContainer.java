@@ -150,6 +150,9 @@ public class RobotContainer {
     private boolean useTrajectoryPassing = Constants.FieldConstants.USE_TRAJECTORY_PASSING_DEFAULT;
 
     public RobotContainer() {
+        // Wire up the robot X supplier for trench hood safety
+        shooterSubsystem.setRobotXSupplier(() -> drivetrain.getState().Pose.getX());
+
         // ===== NAMED COMMANDS FOR PATHPLANNER =====
         // PathPlanner autonomous routines can trigger these by name.
         // The turret default command already auto-aims at the hub, so no
@@ -178,13 +181,6 @@ public class RobotContainer {
             intakeSubsystem.stopIntake();
             intakeSubsystem.deployIn();
         }, intakeSubsystem));
-        NamedCommands.registerCommand("AutoShoot",
-            new AutoShootCommand(turretSubsystem, shooterSubsystem, drivetrain));
-        // Named command to stop any shooting activity (used by PathPlanner events)
-        NamedCommands.registerCommand("StopShooting",
-            Commands.run(() -> {
-                shooterSubsystem.stopAll();
-            }, shooterSubsystem));
 
         // Climb — start the climber level cycle for endgame.
         NamedCommands.registerCommand("Climb", Commands.runOnce(() -> {

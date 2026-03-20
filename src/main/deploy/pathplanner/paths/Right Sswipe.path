@@ -32,7 +32,7 @@
     },
     {
       "anchor": {
-        "x": 4.559545454545455,
+        "x": 3.590704545454545,
         "y": 0.7058977272727269
       },
       "prevControl": {
@@ -218,7 +218,7 @@
             {
               "type": "named",
               "data": {
-                "name": "StopShooting"
+                "name": "StopShooter"
               }
             }
           ]
