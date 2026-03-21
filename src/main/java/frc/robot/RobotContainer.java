@@ -107,9 +107,9 @@ public class RobotContainer {
     // ===== SLEW RATE LIMITERS =====
     // These smooth out sudden joystick movements so the robot doesn't jerk.
     // Value of 3.0 means it takes ~0.33 seconds to go from 0 to full speed.
-    private final SlewRateLimiter xLimiter = new SlewRateLimiter(4.0);
-    private final SlewRateLimiter yLimiter = new SlewRateLimiter(4.0);
-    private final SlewRateLimiter rotationLimiter = new SlewRateLimiter(4.0);
+    private final SlewRateLimiter xLimiter = new SlewRateLimiter(5.0);
+    private final SlewRateLimiter yLimiter = new SlewRateLimiter(5.0);
+    private final SlewRateLimiter rotationLimiter = new SlewRateLimiter(5.0);
 
     // Xbox controller on USB port 0 (driver)
     private final CommandXboxController controller = new CommandXboxController(0);
