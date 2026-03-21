@@ -17,15 +17,15 @@
     {
       "anchor": {
         "x": 7.8061931818181804,
-        "y": 2.128238636363636
+        "y": 3.365056818181819
       },
       "prevControl": {
-        "x": 7.75465909090909,
-        "y": -0.036193181818180875
+        "x": 7.868034090909092,
+        "y": -0.46907954545454444
       },
       "nextControl": {
-        "x": 7.829995959764469,
-        "y": 3.127955310107766
+        "x": 7.79006624709992,
+        "y": 4.364926770713934
       },
       "isLocked": false,
       "linkedName": null
@@ -48,11 +48,11 @@
     },
     {
       "anchor": {
-        "x": 1.0964545454545453,
+        "x": 0.7563295454545453,
         "y": 0.5719090909090914
       },
       "prevControl": {
-        "x": 0.8413011363636367,
+        "x": 0.5011761363636367,
         "y": 0.5616022727272734
       },
       "nextControl": null,
@@ -99,17 +99,6 @@
       }
     },
     {
-      "name": "StopIntake",
-      "waypointRelativePos": 1.7289048473967688,
-      "endWaypointRelativePos": null,
-      "command": {
-        "type": "named",
-        "data": {
-          "name": "StopIntake"
-        }
-      }
-    },
-    {
       "name": "AutoShoot",
       "waypointRelativePos": 2.224416517055652,
       "endWaypointRelativePos": null,
@@ -126,7 +115,7 @@
   },
   "goalEndState": {
     "velocity": 0,
-    "rotation": -178.09084756700364
+    "rotation": 180.0
   },
   "reversed": false,
   "folder": null,
