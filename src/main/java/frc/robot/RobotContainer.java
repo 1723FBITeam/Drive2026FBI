@@ -83,6 +83,15 @@ public class RobotContainer {
             .withDeadband(MaxSpeed * 0.1).withRotationalDeadband(MaxAngularRate * 0.1)
             .withDriveRequestType(DriveRequestType.OpenLoopVoltage);
 
+    // FieldCentricFacingAngle = drive with left stick, but lock heading to a specific angle.
+    // Used by driver D-pad for snap-to-heading (face a specific direction while driving).
+    // MaxAbsRotationalRate caps how fast the robot spins to reach the target heading —
+    // 0.75 rotations/sec (270°/s) is brisk but controlled, won't feel violent.
+    private final SwerveRequest.FieldCentricFacingAngle facingAngle = new SwerveRequest.FieldCentricFacingAngle()
+            .withDeadband(MaxSpeed * 0.1)
+            .withMaxAbsRotationalRate(RotationsPerSecond.of(0.5).in(RadiansPerSecond))
+            .withDriveRequestType(DriveRequestType.OpenLoopVoltage);
+
     // ===== SUBSYSTEMS =====
     // Each subsystem represents a physical mechanism on the robot
     public final CommandSwerveDrivetrain drivetrain = TunerConstants.createDrivetrain();
@@ -270,6 +279,55 @@ public class RobotContainer {
             }));
         controller.rightBumper()
             .onTrue(new InstantCommand(() -> climber.toggleGearboxLock()));
+
+        // --- D-pad (snap-to-heading — face a specific direction while driving) ---
+        // While held: drive normally with left stick, but robot heading snaps to the
+        // D-pad direction. Releasing returns to normal joystick rotation control.
+        // Directions are from the DRIVER'S perspective (field-centric, alliance-aware):
+        //   Up    = face away from driver wall (toward opponent)
+        //   Down  = face toward driver wall
+        //   Left  = face left
+        //   Right = face right
+        //
+        // Uses FieldCentricFacingAngle which has its own heading PID controller.
+        // This does NOT affect the turret or shooter — only drivetrain rotation.
+
+        // Configure the heading controller PID for snap-to-heading
+        // P=4.0 gives a moderate rotation speed — won't whip around violently.
+        // D=0.3 dampens oscillation so it doesn't overshoot the target heading.
+        facingAngle.HeadingController.setPID(4.0, 0.0, 0.3);
+        facingAngle.HeadingController.enableContinuousInput(-Math.PI, Math.PI);
+
+        // Helper: get the field-relative target heading from a driver-relative angle.
+        // On blue alliance, driver faces 0° (toward red wall), so "away" = 0°.
+        // On red alliance, driver faces 180° (toward blue wall), so "away" = 180°.
+        // The operator perspective offset handles this automatically in the swerve
+        // request, so we use fixed angles from the driver's perspective:
+        //   Up (away)  = 0°,  Down (toward) = 180°,  Left = 90°,  Right = -90°
+
+        controller.povUp()
+            .whileTrue(drivetrain.applyRequest(() -> facingAngle
+                .withVelocityX(xLimiter.calculate(joystickCurve(-controller.getLeftY()) * 0.75 * MaxSpeed))
+                .withVelocityY(yLimiter.calculate(joystickCurve(-controller.getLeftX()) * 0.75 * MaxSpeed))
+                .withTargetDirection(getAllianceRotation(Rotation2d.kZero))));
+
+        controller.povDown()
+            .whileTrue(drivetrain.applyRequest(() -> facingAngle
+                .withVelocityX(xLimiter.calculate(joystickCurve(-controller.getLeftY()) * 0.75 * MaxSpeed))
+                .withVelocityY(yLimiter.calculate(joystickCurve(-controller.getLeftX()) * 0.75 * MaxSpeed))
+                .withTargetDirection(getAllianceRotation(Rotation2d.k180deg))));
+
+        controller.povLeft()
+            .whileTrue(drivetrain.applyRequest(() -> facingAngle
+                .withVelocityX(xLimiter.calculate(joystickCurve(-controller.getLeftY()) * 0.75 * MaxSpeed))
+                .withVelocityY(yLimiter.calculate(joystickCurve(-controller.getLeftX()) * 0.75 * MaxSpeed))
+                .withTargetDirection(getAllianceRotation(Rotation2d.kCCW_90deg))));
+
+        controller.povRight()
+            .whileTrue(drivetrain.applyRequest(() -> facingAngle
+                .withVelocityX(xLimiter.calculate(joystickCurve(-controller.getLeftY()) * 0.75 * MaxSpeed))
+                .withVelocityY(yLimiter.calculate(joystickCurve(-controller.getLeftX()) * 0.75 * MaxSpeed))
+                .withTargetDirection(getAllianceRotation(Rotation2d.kCW_90deg))));
 
         // ===================================================================
         //                 CO-PILOT CONTROLLER (USB port 1)
@@ -526,5 +584,22 @@ public class RobotContainer {
     /** Returns true if trajectory physics is enabled for passing shots (co-pilot Back toggle). */
     public boolean isTrajectoryPassingEnabled() {
         return useTrajectoryPassing;
+    }
+
+    /**
+     * Convert a driver-relative heading to a field-relative heading based on alliance.
+     * On blue alliance, the driver faces 0° (toward red wall) — no offset needed.
+     * On red alliance, the driver faces 180° — rotate the target by 180°.
+     *
+     * @param driverRelative the heading from the driver's perspective (0° = away from driver)
+     * @return field-relative heading for the swerve request
+     */
+    private Rotation2d getAllianceRotation(Rotation2d driverRelative) {
+        var alliance = DriverStation.getAlliance();
+        boolean isRed = alliance.isPresent() && alliance.get() == Alliance.Red;
+        if (isRed) {
+            return driverRelative.plus(Rotation2d.k180deg);
+        }
+        return driverRelative;
     }
 }
