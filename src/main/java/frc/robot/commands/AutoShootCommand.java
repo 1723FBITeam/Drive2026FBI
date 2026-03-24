@@ -70,6 +70,7 @@ public class AutoShootCommand extends Command {
         feeding = false;
         readyTimestamp = 0.0;
         targetPose = targetSupplier.get();
+        shooter.changeConfigs();
     }
 
     /** Called every 20ms while the command is running */
@@ -115,7 +116,7 @@ public class AutoShootCommand extends Command {
         // Start the indexer early to keep notes moving toward the feeder
         // BUT NOT while the turret is resetting or in the trench zone
         if (flywheelsReady && !turretResetting && !inTrench) {
-            shooter.runIndexer(0.7);
+            shooter.runIndexer(0.5);
         } else if (!feeding) {
             // Stop indexer when conditions aren't met (unless we're actively feeding,
             // which manages the indexer itself)
@@ -131,8 +132,8 @@ public class AutoShootCommand extends Command {
             }
             if (Timer.getFPGATimestamp() - readyTimestamp >= FEED_DELAY) {
                 // We've been ready long enough — fire!
-                shooter.runFeeder(0.85);
-                shooter.runIndexer(0.7);
+                shooter.runFeeder(0.50);
+                shooter.runIndexer(0.45);
                 feeding = true;
             }
         } else {
@@ -152,6 +153,7 @@ public class AutoShootCommand extends Command {
         turret.stop();
         shooter.stopAll();
         shooter.setHoodPosition(0.0); // Flatten hood when not shooting
+        shooter.changeConfigsBack();
     }
 
     /** This command runs forever until cancelled (toggle off or auto timeout) */

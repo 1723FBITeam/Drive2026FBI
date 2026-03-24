@@ -130,6 +130,8 @@ public class ShooterSubsystem extends SubsystemBase {
     leftShooterMotor.getConfigurator().apply(leftConfigs);
     leftShooterMotor.getConfigurator().apply(flywheelGains);
 
+
+
     // Feeder motor config
     MotorOutputConfigs feederConfigs = new MotorOutputConfigs();
     feederConfigs.Inverted = InvertedValue.Clockwise_Positive;
@@ -199,6 +201,17 @@ public class ShooterSubsystem extends SubsystemBase {
     leftShooterMotor.setControl(flywheelVelocity.withVelocity(adjustedRPS));
     rightShooterMotor.setControl(flywheelVelocity.withVelocity(adjustedRPS));
   }
+  public void changeConfigs () {
+    MotorOutputConfigs brakeConfigsShoot = new MotorOutputConfigs();
+    brakeConfigsShoot.NeutralMode = NeutralModeValue.Brake;
+    leftShooterMotor.getConfigurator().apply(brakeConfigsShoot);
+    rightShooterMotor.getConfigurator().apply(brakeConfigsShoot); }
+
+  public void changeConfigsBack () {
+    MotorOutputConfigs brakeConfigsShootBack = new MotorOutputConfigs();
+    brakeConfigsShootBack.NeutralMode = NeutralModeValue.Coast;
+    leftShooterMotor.getConfigurator().apply(brakeConfigsShootBack);
+    rightShooterMotor.getConfigurator().apply(brakeConfigsShootBack); }
 
   /** Stop both flywheel motors */
   public void stopFlywheels() {
