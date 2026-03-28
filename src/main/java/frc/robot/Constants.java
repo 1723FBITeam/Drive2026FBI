@@ -34,8 +34,9 @@ public class Constants {
         public static final int SHOOTER_LEFT_MOTOR = 21;  // Left flywheel
         public static final int SHOOTER_RIGHT_MOTOR = 22; // Right flywheel
         public static final int TURRET_MOTOR = 23;        // Rotates the whole shooter
-        public static final int FEEDER_MOTOR = 24;        // Pushes notes into flywheels
-        public static final int SPINNER_MOTOR = 25;       // Indexes/queues notes
+        public static final int FEEDER_LEFT_MOTOR = 24;        // Pushes notes into flywheels
+        public static final int SPINNER_MOTOR = 25;
+        public static final int FEEDER_RIGHT_MOTOR = 26;        // Indexes/queues notes
 
         // Hood servo is on PWM port 0 (not CAN — it's a simple servo)
         public static final int HOOD_SERVO = 0;

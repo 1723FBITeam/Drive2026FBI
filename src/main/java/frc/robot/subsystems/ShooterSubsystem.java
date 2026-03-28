@@ -43,7 +43,8 @@ public class ShooterSubsystem extends SubsystemBase {
   private final TalonFX rightShooterMotor = new TalonFX(Constants.ShootingConstants.SHOOTER_RIGHT_MOTOR, Constants.kCANivoreBus);
 
   // Feeder motor — pushes notes from the indexer into the spinning flywheels
-  private final TalonFX feederMotor = new TalonFX(Constants.ShootingConstants.FEEDER_MOTOR, Constants.kCANivoreBus);
+  private final TalonFX leftFeederMotor = new TalonFX(Constants.ShootingConstants.FEEDER_LEFT_MOTOR, Constants.kCANivoreBus);
+  private final TalonFX rightFeederMotor = new TalonFX(Constants.ShootingConstants.FEEDER_RIGHT_MOTOR, Constants.kCANivoreBus);
 
   // Indexer/spinner motor — moves notes into position before feeding
   private final TalonFX indexerMotor = new TalonFX(Constants.ShootingConstants.SPINNER_MOTOR, Constants.kCANivoreBus);
@@ -122,6 +123,7 @@ public class ShooterSubsystem extends SubsystemBase {
     rightConfigs.NeutralMode = NeutralModeValue.Coast; // Coast = spin freely when stopped (less wear)
     rightShooterMotor.getConfigurator().apply(rightConfigs);
     rightShooterMotor.getConfigurator().apply(flywheelGains);
+    rightFeederMotor.getConfigurator().apply(rightConfigs); // Feeder spins same direction as right flywheel
 
     // Left flywheel: Clockwise = positive direction (opposite of right)
     MotorOutputConfigs leftConfigs = new MotorOutputConfigs();
@@ -129,14 +131,7 @@ public class ShooterSubsystem extends SubsystemBase {
     leftConfigs.NeutralMode = NeutralModeValue.Coast;
     leftShooterMotor.getConfigurator().apply(leftConfigs);
     leftShooterMotor.getConfigurator().apply(flywheelGains);
-
-
-
-    // Feeder motor config
-    MotorOutputConfigs feederConfigs = new MotorOutputConfigs();
-    feederConfigs.Inverted = InvertedValue.Clockwise_Positive;
-    feederConfigs.NeutralMode = NeutralModeValue.Coast;
-    feederMotor.getConfigurator().apply(feederConfigs);
+    leftFeederMotor.getConfigurator().apply(leftConfigs); // Feeder spins same direction as right flywheel
 
     // Indexer motor config
     MotorOutputConfigs indexerConfigs = new MotorOutputConfigs();
@@ -165,8 +160,9 @@ public class ShooterSubsystem extends SubsystemBase {
     hoodTable.put(4.7, 0.47);
 
     // Flywheel speed table: distance → speed in Rotations Per Second (RPS)
-    shooterRPSTable.put(1.3, 19.0);   // ~1134 RPM
-    shooterRPSTable.put(2.1, 26.5);   // ~1476 RPM
+    shooterRPSTable.put(1.3, 20.0);   // ~1134 RPM
+    shooterRPSTable.put(2.1, 27.5);   // ~1476 RPM
+    shooterRPSTable.put(2.2, 28.5);
     shooterRPSTable.put(3.0, 29.6);   // ~1680 RPM
     shooterRPSTable.put(3.8, 33.4);   // ~1950 RPM
     shooterRPSTable.put(4.7, 37.5);   // ~2220 RPM
@@ -201,17 +197,7 @@ public class ShooterSubsystem extends SubsystemBase {
     leftShooterMotor.setControl(flywheelVelocity.withVelocity(adjustedRPS));
     rightShooterMotor.setControl(flywheelVelocity.withVelocity(adjustedRPS));
   }
-  public void changeConfigs () {
-    MotorOutputConfigs brakeConfigsShoot = new MotorOutputConfigs();
-    brakeConfigsShoot.NeutralMode = NeutralModeValue.Brake;
-    leftShooterMotor.getConfigurator().apply(brakeConfigsShoot);
-    rightShooterMotor.getConfigurator().apply(brakeConfigsShoot); }
 
-  public void changeConfigsBack () {
-    MotorOutputConfigs brakeConfigsShootBack = new MotorOutputConfigs();
-    brakeConfigsShootBack.NeutralMode = NeutralModeValue.Coast;
-    leftShooterMotor.getConfigurator().apply(brakeConfigsShootBack);
-    rightShooterMotor.getConfigurator().apply(brakeConfigsShootBack); }
 
   /** Stop both flywheel motors */
   public void stopFlywheels() {
@@ -227,11 +213,13 @@ public class ShooterSubsystem extends SubsystemBase {
    * @param speed Duty cycle from -1.0 to 1.0 (positive = feed forward)
    */
   public void runFeeder(double speed) {
-    feederMotor.set(speed);
+    leftFeederMotor.set(speed);
+    rightFeederMotor.set(speed);
   }
 
   public void stopFeeder() {
-    feederMotor.stopMotor();
+    leftFeederMotor.stopMotor();
+    rightFeederMotor.stopMotor();
   }
 
   // ==================== INDEXER/SPINNER CONTROLS ====================

@@ -74,8 +74,8 @@ public class TurretSubsystem extends SubsystemBase {
     // ===== TURRET TRAVEL LIMITS =====
     // CCW (positive direction, viewed from above): 420 degrees = 420/360 = 1.1667 rotations
     // CW (negative direction, viewed from above): 245 degrees = 245/360 = 0.6806 rotations
-    private static final double MAX_MECHANISM_ROTATIONS = 420.0 / 360.0;   // +1.1667
-    private static final double MIN_MECHANISM_ROTATIONS = -245.0 / 360.0;  // -0.6806
+    private static final double MAX_MECHANISM_ROTATIONS = 1.22;   // +1.1667
+    private static final double MIN_MECHANISM_ROTATIONS = -0.40;  // -0.6806
 
     // ===== RESET DETECTION =====
     // When the turret needs to travel more than this many rotations to reach

@@ -70,7 +70,7 @@ public class AutoShootCommand extends Command {
         feeding = false;
         readyTimestamp = 0.0;
         targetPose = targetSupplier.get();
-        shooter.changeConfigs();
+        // shooter.changeConfigs();
     }
 
     /** Called every 20ms while the command is running */
@@ -153,7 +153,7 @@ public class AutoShootCommand extends Command {
         turret.stop();
         shooter.stopAll();
         shooter.setHoodPosition(0.0); // Flatten hood when not shooting
-        shooter.changeConfigsBack();
+        // shooter.changeConfigsBack();
     }
 
     /** This command runs forever until cancelled (toggle off or auto timeout) */

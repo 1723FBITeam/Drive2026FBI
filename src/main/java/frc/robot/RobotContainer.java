@@ -12,10 +12,12 @@ import com.ctre.phoenix6.swerve.SwerveModule.DriveRequestType;
 import com.ctre.phoenix6.swerve.SwerveRequest;
 import com.pathplanner.lib.auto.AutoBuilder;
 import com.pathplanner.lib.auto.NamedCommands;
+import com.pathplanner.lib.path.PathPlannerPath;
 
 import edu.wpi.first.math.filter.SlewRateLimiter;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
+import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.networktables.DoublePublisher;
 import edu.wpi.first.networktables.NetworkTable;
 import edu.wpi.first.networktables.NetworkTableInstance;
@@ -108,6 +110,25 @@ public class RobotContainer {
 
     // Telemetry — sends drivetrain data to the dashboard
     private final Telemetry logger = new Telemetry(MaxSpeed);
+
+    PathPlannerPath path;
+    {
+
+        try {
+            path = PathPlannerPath.fromPathFile("Left Sweep");
+        } catch (Exception e) {
+            e.printStackTrace();
+            path = null;
+        }
+    }
+
+    Command followPath = null;
+    {
+
+        if (path != null) {
+            followPath = AutoBuilder.followPath(path);
+        }
+    }
 
     // ===== SLEW RATE LIMITERS =====
     // These smooth out sudden joystick movements so the robot doesn't jerk.
@@ -239,23 +260,32 @@ public class RobotContainer {
                 .toggleOnTrue(new AutoShootCommand(turretSubsystem, shooterSubsystem, drivetrain, this::getSmartTarget,
                         this::isTrajectoryPassingEnabled));
 
-        controller.rightTrigger()
+        // controller.rightTrigger()
+        // .whileTrue(new StartEndCommand(
+        // () -> {
+        // shooterSubsystem.runFlywheelsRPS(30.0);
+        // shooterSubsystem.runFeeder(0.4);
+        // shooterSubsystem.runIndexer(0.3);
+        // },
+        // () -> shooterSubsystem.stopAll(),
+        // shooterSubsystem));
+        // controller.leftTrigger()
+        // .whileTrue(new StartEndCommand(
+        // () -> {
+        // shooterSubsystem.runFlywheelsRPS(25.0);
+        // },
+        // () -> {
+        // },
+        // shooterSubsystem));
+
+        if (followPath != null) {
+            controller.leftTrigger().onTrue(followPath);
+        }
+
+        controller.leftBumper()
                 .whileTrue(new StartEndCommand(
-                        () -> {
-                            shooterSubsystem.runFlywheelsRPS(30.0);
-                            shooterSubsystem.runFeeder(0.4);
-                            shooterSubsystem.runIndexer(0.3);
-                        },
-                        () -> shooterSubsystem.stopAll(),
-                        shooterSubsystem));
-        controller.leftTrigger()
-                .whileTrue(new StartEndCommand(
-                        () -> {
-                            shooterSubsystem.runFlywheelsRPS(25.0);
-                        },
-                        () -> {
-                        },
-                        shooterSubsystem));
+                        () -> drivetrain.setSpeedMultiplier(0.4),
+                        () -> drivetrain.setSpeedMultiplier(1.0)));
 
         // X BUTTON — toggle intake on/off
         // Press once: deploys intake out, starts rollers
@@ -268,21 +298,52 @@ public class RobotContainer {
         //
         // The retract sequence is part of the command chain (not a fire-and-forget
         // schedule call) so we avoid the deprecated Command.schedule() API.
-        controller.x()
-                .toggleOnTrue(
-                        // Phase 1: Deploy out, wait, stop deploy, then run rollers
-                        new SequentialCommandGroup(
-                                new InstantCommand(() -> intakeSubsystem.deployOut(), intakeSubsystem),
-                                new WaitCommand(0.3),
-                                new InstantCommand(() -> intakeSubsystem.stopDeploy()),
-                                new RunCommand(() -> intakeSubsystem.runIntake(0.5), intakeSubsystem)).finallyDo(() -> {
-                                    // Immediately stop rollers and start retracting.
-                                    intakeSubsystem.stopIntake();
-                                    intakeSubsystem.deployIn();
-                                })
-                                // Phase 2: After cancel/end, give deploy motor 0.3s to retract, then stop it
-                                .andThen(new WaitCommand(0.3))
-                                .andThen(new InstantCommand(() -> intakeSubsystem.stopDeploy())));
+        // controller.x()
+        // .toggleOnTrue(
+        // // Phase 1: Deploy out, wait, stop deploy, then run rollers
+        // new SequentialCommandGroup(
+        // new InstantCommand(() -> intakeSubsystem.deployOut(), intakeSubsystem),
+        // new WaitCommand(0.3),
+        // new InstantCommand(() -> intakeSubsystem.stopDeploy()),
+        // new RunCommand(() -> intakeSubsystem.runIntake(0.5),
+        // intakeSubsystem)).finallyDo(() -> {
+        // // Immediately stop rollers and start retracting.
+        // intakeSubsystem.stopIntake();
+        // intakeSubsystem.deployIn();
+        // })
+        // // Phase 2: After cancel/end, give deploy motor 0.3s to retract, then stop it
+        // .andThen(new WaitCommand(0.3))
+        // .andThen(new InstantCommand(() -> intakeSubsystem.stopDeploy())));
+
+        controller.x().toggleOnTrue(
+                // --- COMMAND TO START (Deploy & Spin) ---
+                new SequentialCommandGroup(
+                        new InstantCommand(intakeSubsystem::deployOut, intakeSubsystem),
+                        new WaitCommand(0.3),
+                        new InstantCommand(intakeSubsystem::stopDeploy, intakeSubsystem),
+                        // This RunCommand keeps the rollers spinning until the button is toggled OFF
+                        new RunCommand(() -> intakeSubsystem.runIntake(0.5), intakeSubsystem))
+                        .finallyDo((interrupted) -> {
+                            // --- COMMAND TO STOP (Retract & Stop) ---
+                            // This only runs when the toggle is turned OFF (interrupting the RunCommand)
+                            new SequentialCommandGroup(
+                                    new InstantCommand(intakeSubsystem::stopIntake, intakeSubsystem),
+                                    new InstantCommand(intakeSubsystem::deployIn, intakeSubsystem),
+                                    new WaitCommand(0.3),
+                                    new InstantCommand(intakeSubsystem::stopDeploy, intakeSubsystem),
+                                    new WaitCommand(0.5),
+                                    new InstantCommand(intakeSubsystem::changeConfigs, intakeSubsystem)).schedule(); // .schedule()
+                                                                                                                  // allows
+                                                                                                                  // this
+                                                                                                                  // to
+                                                                                                                  // run
+                                                                                                                  // even
+                                                                                                                  // after
+                                                                                                                  // the
+                                                                                                                  // parent
+                                                                                                                  // is
+                                                                                                                  // dead
+                        }));
 
         // A BUTTON — jostle intake to unstick balls
         // While held: continuously repeat the jostle sequence (with a short gap) until
@@ -491,13 +552,29 @@ public class RobotContainer {
                         speedScale = 0.4; // Slow enough for hood servo to retract
                     }
 
+                    // ✅ DEFINE THESE FIRST
+                    double xInput = joystickCurve(-controller.getLeftY()) * speedScale * MaxSpeed;
+                    double yInput = joystickCurve(-controller.getLeftX()) * speedScale * MaxSpeed;
+                    double rotInput = joystickCurve(-controller.getRightX()) * 0.85 * MaxAngularRate;
+
+                    // ✅ GET SPEEDS FROM POSE
+                    // This gets the actual physical velocity of the robot from the Pose Estimator
+                    ChassisSpeeds currentRobotSpeeds = drivetrain.getState().Speeds;
+
+                    // ✅ PASS TO INTAKE
+                    intakeSubsystem.handleAutoRetract(currentRobotSpeeds);
+                    // 🔽 APPLY LIMITERS + MULTIPLIER (UNCHANGED LOGIC)
+                    double mult = drivetrain.getSpeedMultiplier();
+
                     return drive
                             .withVelocityX(
-                                    xLimiter.calculate(joystickCurve(-controller.getLeftY()) * speedScale * MaxSpeed))
+                                    xLimiter.calculate(
+                                            joystickCurve(-controller.getLeftY()) * speedScale * MaxSpeed * mult))
                             .withVelocityY(
-                                    yLimiter.calculate(joystickCurve(-controller.getLeftX()) * speedScale * MaxSpeed))
+                                    yLimiter.calculate(
+                                            joystickCurve(-controller.getLeftX()) * speedScale * MaxSpeed * mult))
                             .withRotationalRate(rotationLimiter
-                                    .calculate(joystickCurve(-controller.getRightX()) * 0.85 * MaxAngularRate));
+                                    .calculate(joystickCurve(-controller.getRightX()) * 0.85 * MaxAngularRate * mult));
                 }));
     }
 
