@@ -162,11 +162,12 @@ public class TurretSubsystem extends SubsystemBase {
         // Lower KP = slower approach, higher KD = more damping to prevent overshoot.
         // KV adds velocity feedforward for smoother motion.
         var slot1 = new Slot1Configs()
-            .withKP(8.0)
+            .withKP(15.0)
             .withKI(0.0)
             .withKD(0.5)
             .withKS(0.5)
-            .withKV(0.5)
+            .withKV(0.65)
+            .withKA(0.05)
             .withStaticFeedforwardSign(StaticFeedforwardSignValue.UseClosedLoopSign);
 
         // Motion Magic profile limits — prevents teeth skipping by controlling

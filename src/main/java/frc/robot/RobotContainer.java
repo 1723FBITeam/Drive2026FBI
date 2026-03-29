@@ -260,23 +260,12 @@ public class RobotContainer {
                 .toggleOnTrue(new AutoShootCommand(turretSubsystem, shooterSubsystem, drivetrain, this::getSmartTarget,
                         this::isTrajectoryPassingEnabled));
 
-        // controller.rightTrigger()
-        // .whileTrue(new StartEndCommand(
-        // () -> {
-        // shooterSubsystem.runFlywheelsRPS(30.0);
-        // shooterSubsystem.runFeeder(0.4);
-        // shooterSubsystem.runIndexer(0.3);
-        // },
-        // () -> shooterSubsystem.stopAll(),
-        // shooterSubsystem));
-        // controller.leftTrigger()
-        // .whileTrue(new StartEndCommand(
-        // () -> {
-        // shooterSubsystem.runFlywheelsRPS(25.0);
-        // },
-        // () -> {
-        // },
-        // shooterSubsystem));
+controller.rightTrigger()
+    .whileTrue(new StartEndCommand(
+        () -> shooterSubsystem.runFeeder(0.65), // Start: Run at 0.65
+        () -> shooterSubsystem.stopFeeder(),   // End: Stop the motor
+        shooterSubsystem                       // Subsystem requirement
+    ));
 
         if (followPath != null) {
             controller.leftTrigger().onTrue(followPath);

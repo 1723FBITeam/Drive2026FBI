@@ -163,8 +163,8 @@ public class ShooterSubsystem extends SubsystemBase {
     shooterRPSTable.put(1.3, 20.0);   // ~1134 RPM
     shooterRPSTable.put(2.1, 27.5);   // ~1476 RPM
     shooterRPSTable.put(2.2, 28.5);
-    shooterRPSTable.put(3.0, 29.6);   // ~1680 RPM
-    shooterRPSTable.put(3.8, 33.4);   // ~1950 RPM
+    shooterRPSTable.put(3.0, 30.6);   // ~1680 RPM
+    shooterRPSTable.put(3.8, 34.4);   // ~1950 RPM
     shooterRPSTable.put(4.7, 37.5);   // ~2220 RPM
 
     // Set up dashboard publishers for the Calibration tab
