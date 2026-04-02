@@ -2,6 +2,7 @@ package frc.robot.subsystems;
 
 import com.ctre.phoenix6.configs.MotorOutputConfigs;
 import com.ctre.phoenix6.configs.TalonFXSConfiguration;
+import com.ctre.phoenix6.controls.PositionVoltage;
 import com.ctre.phoenix6.hardware.TalonFX;
 import com.ctre.phoenix6.hardware.TalonFXS;
 import com.ctre.phoenix6.signals.InvertedValue;
@@ -17,6 +18,8 @@ import edu.wpi.first.wpilibj2.command.InstantCommand;
 import edu.wpi.first.wpilibj2.command.SequentialCommandGroup;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import edu.wpi.first.wpilibj2.command.WaitCommand;
+import edu.wpi.first.wpilibj2.command.WaitUntilCommand;
+import edu.wpi.first.wpilibj2.command.Commands;
 // SmartDashboard removed for deploy limits (we let gravity settle)
 import frc.robot.Constants;
 
@@ -72,16 +75,14 @@ public class IntakeSubsystem extends SubsystemBase {
         return isRunning;
     }
 
+    public double getAverageDeployPosition() {
+        return (intakeLeftActivator.getPosition().getValueAsDouble() +
+                intakeRightActivator.getPosition().getValueAsDouble()) / 2.0;
+    }
+
+    private final PositionVoltage m_positionControl = new PositionVoltage(0);
+
     public IntakeSubsystem() {
-        // Configure TalonFXS deploy motors
-        // MotorArrangement must be set to Minion_JST because these drive
-        // smaller motors connected via JST cable (not the built-in motor)
-        TalonFXSConfiguration fxsConfig = new TalonFXSConfiguration();
-        fxsConfig.Commutation.MotorArrangement = MotorArrangementValue.Minion_JST;
-        // Use COAST so gravity can settle the deploy when motors are stopped
-        fxsConfig.MotorOutput.NeutralMode = NeutralModeValue.Coast;
-        intakeLeftActivator.getConfigurator().apply(fxsConfig);
-        intakeRightActivator.getConfigurator().apply(fxsConfig);
 
         // Configure roller motors — left and right spin opposite directions
         // so they both pull notes inward toward the center
@@ -104,6 +105,24 @@ public class IntakeSubsystem extends SubsystemBase {
         ntLeftPos = calTable.getDoubleTopic("Intake L Pos").publish();
         ntRightPos = calTable.getDoubleTopic("Intake R Pos").publish();
         ntAvgPos = calTable.getDoubleTopic("Intake Avg Pos").publish();
+
+        // Configure TalonFXS deploy motors
+        // MotorArrangement must be set to Minion_JST because these drive
+        // smaller motors connected via JST cable (not the built-in motor)
+        TalonFXSConfiguration fxsConfig = new TalonFXSConfiguration();
+        fxsConfig.Commutation.MotorArrangement = MotorArrangementValue.Minion_JST;
+        // Use COAST so gravity can settle the deploy when motors are stopped
+        fxsConfig.MotorOutput.NeutralMode = NeutralModeValue.Coast;
+        intakeLeftActivator.getConfigurator().apply(fxsConfig);
+        intakeRightActivator.getConfigurator().apply(fxsConfig);
+
+        // 2. Add PID gains (Adjust these values! Start small, like P=2.0 or 5.0)
+        fxsConfig.Slot0.kP = 10.0;
+        fxsConfig.Slot0.kI = 0.0;
+        fxsConfig.Slot0.kD = 0.1;
+
+        intakeLeftActivator.getConfigurator().apply(fxsConfig);
+        intakeRightActivator.getConfigurator().apply(fxsConfig);
     }
 
     /**
@@ -127,7 +146,7 @@ public class IntakeSubsystem extends SubsystemBase {
     /** Swing the intake outward (away from robot) to reach the ground */
     public void deployOut() {
         // Drive deploy motors outward; no software limits so gravity can settle
-        changeConfigsBack();
+        // changeConfigsBack();
         intakeLeftActivator.set(DEPLOY_SPEED);
         intakeRightActivator.set(DEPLOY_SPEED);
         isExtended = true;
@@ -148,39 +167,37 @@ public class IntakeSubsystem extends SubsystemBase {
 
     }
 
-    /**
-     * Returns a command that jostles the intake to unstick balls.
-     * Only pulses the deploy mechanism in/out — rollers keep running
-     * so the ball stays engaged. Safe to call repeatedly.
-     *
-     * Sequence: retract briefly → stop → deploy back out → stop
-     * Each phase is 0.3s so the whole jostle takes about 1.2 seconds.
-     */
+    // Returns a command that jostles the intake to unstick balls.
+    // Only pulses the deploy mechanism in/out — rollers keep running
+    // so the ball stays engaged. Safe to call repeatedly.
+
     public Command jostleCommand() {
         return new SequentialCommandGroup(
-                // Pull in briefly to shake things loose
-                new InstantCommand(() -> deployIn()),
-                new WaitCommand(0.3),
-                new InstantCommand(() -> stopDeploy()),
-                // Push back out to original position
-                new InstantCommand(() -> deployOut()),
-                new WaitCommand(0.3),
-                new InstantCommand(() -> stopDeploy())
+                // 1. Move the intake in
+                new InstantCommand(() -> deployIn(), this),
 
+                // 2. Wait until the average position is 0.76 or higher
+                Commands.waitUntil(() -> getAverageDeployPosition() >= 0.069),
+
+                // 3. Stop the motors and ensure they are in Coast mode so it falls
+                new InstantCommand(() -> stopDeploy(), this),
+
+                // 4. Wait a moment for the intake to drop
+                new WaitCommand(0.5)
         );
     }
 
-    public void changeConfigs () {
-    MotorOutputConfigs brakeConfigsShoot = new MotorOutputConfigs();
-    brakeConfigsShoot.NeutralMode = NeutralModeValue.Brake;
-    intakeLeftActivator.getConfigurator().apply(brakeConfigsShoot);
-    intakeRightActivator.getConfigurator().apply(brakeConfigsShoot); }
+    // public void changeConfigs () {
+    // MotorOutputConfigs brakeConfigsShoot = new MotorOutputConfigs();
+    // brakeConfigsShoot.NeutralMode = NeutralModeValue.Brake;
+    // intakeLeftActivator.getConfigurator().apply(brakeConfigsShoot);
+    // intakeRightActivator.getConfigurator().apply(brakeConfigsShoot); }
 
-    public void changeConfigsBack () {
-    MotorOutputConfigs brakeConfigsShootBack = new MotorOutputConfigs();
-    brakeConfigsShootBack.NeutralMode = NeutralModeValue.Coast;
-    intakeLeftActivator.getConfigurator().apply(brakeConfigsShootBack);
-    intakeRightActivator.getConfigurator().apply(brakeConfigsShootBack); }
+    // public void changeConfigsBack () {
+    // MotorOutputConfigs brakeConfigsShootBack = new MotorOutputConfigs();
+    // brakeConfigsShootBack.NeutralMode = NeutralModeValue.Coast;
+    // intakeLeftActivator.getConfigurator().apply(brakeConfigsShootBack);
+    // intakeRightActivator.getConfigurator().apply(brakeConfigsShootBack); }
 
     /**
      * * A command that safely stops everything and tucks the intake in.
@@ -209,21 +226,41 @@ public class IntakeSubsystem extends SubsystemBase {
     }
 
     /**
- * Checks actual robot movement from Odometry and auto-retracts if necessary.
- * @param speeds The current ChassisSpeeds from the Pose Estimator/Drivetrain state.
- */
-public void handleAutoRetract(ChassisSpeeds speeds) {
-    // vxMetersPerSecond is the "Forward/Backward" speed of the robot pose.
-    double vx = speeds.vxMetersPerSecond;
+     * Checks actual robot movement from Odometry and auto-retracts if necessary.
+     * 
+     * @param speeds The current ChassisSpeeds from the Pose Estimator/Drivetrain
+     *               state.
+     */
+    public void handleAutoRetract(ChassisSpeeds speeds) {
+        // vxMetersPerSecond is the "Forward/Backward" speed of the robot pose.
+        double vx = speeds.vxMetersPerSecond;
 
-    // We check: 
-    // 1. Is the intake currently out and running?
-    // 2. Is the robot physically moving backward faster than 0.5 meters/sec?
-    if (this.isExtended && this.isRunning && vx < -0.5) {
-        // Only trigger if the retract command isn't already running
-        this.retractCommand().schedule();
+        // We check:
+        // 1. Is the intake currently out and running?
+        // 2. Is the robot physically moving backward faster than 0.5 meters/sec?
+        if (this.isExtended && this.isRunning && vx < -1.0) {
+            // Only trigger if the retract command isn't already running
+            this.retractCommand().schedule();
+        }
     }
-}
+
+    // 3. Create the method to hold position
+    public void holdPosition(double position) {
+        // We apply the position request to both motors
+        intakeLeftActivator.setControl(m_positionControl.withPosition(position));
+        intakeRightActivator.setControl(m_positionControl.withPosition(position));
+
+        // Optional: Switch to Brake mode for a stronger hold
+        setNeutralMode(NeutralModeValue.Brake);
+    }
+
+    // Helper to make the container code cleaner
+    public void setNeutralMode(NeutralModeValue mode) {
+        MotorOutputConfigs config = new MotorOutputConfigs();
+        config.NeutralMode = mode;
+        intakeLeftActivator.getConfigurator().apply(config);
+        intakeRightActivator.getConfigurator().apply(config);
+    }
 
     private int telemetryCounter = 0;
 

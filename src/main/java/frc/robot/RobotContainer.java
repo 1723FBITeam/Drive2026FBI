@@ -12,6 +12,7 @@ import com.ctre.phoenix6.swerve.SwerveModule.DriveRequestType;
 import com.ctre.phoenix6.swerve.SwerveRequest;
 import com.pathplanner.lib.auto.AutoBuilder;
 import com.pathplanner.lib.auto.NamedCommands;
+import com.pathplanner.lib.path.PathConstraints;
 import com.pathplanner.lib.path.PathPlannerPath;
 
 import edu.wpi.first.math.filter.SlewRateLimiter;
@@ -58,131 +59,131 @@ import frc.robot.commands.AutoShootCommand;
  * inputs (controller buttons) to outputs (motor actions).
  */
 public class RobotContainer {
-    // ===== SPEED LIMITS =====
-    // MaxSpeed: how fast the robot can drive (meters per second)
-    // We multiply by 1.0 here — change to 0.5 for half speed during testing!
-    private double MaxSpeed = 1.0 * TunerConstants.kSpeedAt12Volts.in(MetersPerSecond);
-    // MaxAngularRate: how fast the robot can spin (radians per second)
-    private double MaxAngularRate = RotationsPerSecond.of(0.75).in(RadiansPerSecond);
+        // ===== SPEED LIMITS =====
+        // MaxSpeed: how fast the robot can drive (meters per second)
+        // We multiply by 1.0 here — change to 0.5 for half speed during testing!
+        private double MaxSpeed = 1.0 * TunerConstants.kSpeedAt12Volts.in(MetersPerSecond);
+        // MaxAngularRate: how fast the robot can spin (radians per second)
+        private double MaxAngularRate = RotationsPerSecond.of(0.75).in(RadiansPerSecond);
 
-    /**
-     * Joystick curve — makes the sticks less sensitive near the center
-     * for better precision at low speeds, while still allowing full speed.
-     *
-     * Blend: 30% linear + 70% cubic
-     * - At small inputs (0.1): output is ~0.03 + ~0.0007 = very gentle
-     * - At full input (1.0): output is 0.3 + 0.7 = 1.0 (full speed)
-     */
-    private static double joystickCurve(double input) {
-        double cubic = input * input * input;
-        return 0.3 * input + 0.7 * cubic;
-    }
-
-    // ===== SWERVE DRIVE REQUEST =====
-    // FieldCentric means pushing the stick "forward" always drives away from the
-    // driver,
-    // regardless of which way the robot is facing.
-    // Deadband: ignore tiny stick movements (10% of max) to prevent drift
-    private final SwerveRequest.FieldCentric drive = new SwerveRequest.FieldCentric()
-            .withDeadband(MaxSpeed * 0.1).withRotationalDeadband(MaxAngularRate * 0.1)
-            .withDriveRequestType(DriveRequestType.OpenLoopVoltage);
-
-    // FieldCentricFacingAngle = drive with left stick, but lock heading to a
-    // specific angle.
-    // Used by driver D-pad for snap-to-heading (face a specific direction while
-    // driving).
-    // MaxAbsRotationalRate caps how fast the robot spins to reach the target
-    // heading —
-    // 0.75 rotations/sec (270°/s) is brisk but controlled, won't feel violent.
-    private final SwerveRequest.FieldCentricFacingAngle facingAngle = new SwerveRequest.FieldCentricFacingAngle()
-            .withDeadband(MaxSpeed * 0.1)
-            .withMaxAbsRotationalRate(RotationsPerSecond.of(0.5).in(RadiansPerSecond))
-            .withDriveRequestType(DriveRequestType.OpenLoopVoltage);
-
-    // ===== SUBSYSTEMS =====
-    // Each subsystem represents a physical mechanism on the robot
-    public final CommandSwerveDrivetrain drivetrain = TunerConstants.createDrivetrain();
-    private final TurretSubsystem turretSubsystem = new TurretSubsystem();
-    private final ShooterSubsystem shooterSubsystem = new ShooterSubsystem();
-    private final IntakeSubsystem intakeSubsystem = new IntakeSubsystem();
-    private final frc.robot.subsystems.ClimberSubsystem climber = new frc.robot.subsystems.ClimberSubsystem();
-    // ClimberSubsystem — not wired yet, uncomment when ready
-
-    // Telemetry — sends drivetrain data to the dashboard
-    private final Telemetry logger = new Telemetry(MaxSpeed);
-
-    PathPlannerPath path;
-    {
-
-        try {
-            path = PathPlannerPath.fromPathFile("Left Sweep");
-        } catch (Exception e) {
-            e.printStackTrace();
-            path = null;
+        /**
+         * Joystick curve — makes the sticks less sensitive near the center
+         * for better precision at low speeds, while still allowing full speed.
+         *
+         * Blend: 30% linear + 70% cubic
+         * - At small inputs (0.1): output is ~0.03 + ~0.0007 = very gentle
+         * - At full input (1.0): output is 0.3 + 0.7 = 1.0 (full speed)
+         */
+        private static double joystickCurve(double input) {
+                double cubic = input * input * input;
+                return 0.3 * input + 0.7 * cubic;
         }
-    }
 
-    Command followPath = null;
-    {
+        // ===== SWERVE DRIVE REQUEST =====
+        // FieldCentric means pushing the stick "forward" always drives away from the
+        // driver,
+        // regardless of which way the robot is facing.
+        // Deadband: ignore tiny stick movements (10% of max) to prevent drift
+        private final SwerveRequest.FieldCentric drive = new SwerveRequest.FieldCentric()
+                        .withDeadband(MaxSpeed * 0.1).withRotationalDeadband(MaxAngularRate * 0.1)
+                        .withDriveRequestType(DriveRequestType.OpenLoopVoltage);
 
-        if (path != null) {
-            followPath = AutoBuilder.followPath(path);
+        // FieldCentricFacingAngle = drive with left stick, but lock heading to a
+        // specific angle.
+        // Used by driver D-pad for snap-to-heading (face a specific direction while
+        // driving).
+        // MaxAbsRotationalRate caps how fast the robot spins to reach the target
+        // heading —
+        // 0.75 rotations/sec (270°/s) is brisk but controlled, won't feel violent.
+        private final SwerveRequest.FieldCentricFacingAngle facingAngle = new SwerveRequest.FieldCentricFacingAngle()
+                        .withDeadband(MaxSpeed * 0.1)
+                        .withMaxAbsRotationalRate(RotationsPerSecond.of(0.5).in(RadiansPerSecond))
+                        .withDriveRequestType(DriveRequestType.OpenLoopVoltage);
+
+        // ===== SUBSYSTEMS =====
+        // Each subsystem represents a physical mechanism on the robot
+        public final CommandSwerveDrivetrain drivetrain = TunerConstants.createDrivetrain();
+        private final TurretSubsystem turretSubsystem = new TurretSubsystem();
+        private final ShooterSubsystem shooterSubsystem = new ShooterSubsystem();
+        private final IntakeSubsystem intakeSubsystem = new IntakeSubsystem();
+        private final frc.robot.subsystems.ClimberSubsystem climber = new frc.robot.subsystems.ClimberSubsystem();
+        // ClimberSubsystem — not wired yet, uncomment when ready
+
+        // Telemetry — sends drivetrain data to the dashboard
+        private final Telemetry logger = new Telemetry(MaxSpeed);
+
+        PathPlannerPath path;
+        {
+
+                try {
+                        path = PathPlannerPath.fromPathFile("Left Sweep");
+                } catch (Exception e) {
+                        e.printStackTrace();
+                        path = null;
+                }
         }
-    }
 
-    // ===== SLEW RATE LIMITERS =====
-    // These smooth out sudden joystick movements so the robot doesn't jerk.
-    // Value of 3.0 means it takes ~0.33 seconds to go from 0 to full speed.
-    private final SlewRateLimiter xLimiter = new SlewRateLimiter(5.0);
-    private final SlewRateLimiter yLimiter = new SlewRateLimiter(5.0);
-    private final SlewRateLimiter rotationLimiter = new SlewRateLimiter(5.0);
+        Command followPath = null;
+        {
 
-    // Xbox controller on USB port 0 (driver)
-    private final CommandXboxController controller = new CommandXboxController(0);
+                if (path != null) {
+                        followPath = AutoBuilder.followPath(path);
+                }
+        }
 
-    // Xbox controller on USB port 1 (co-pilot — live-tunes turret aim and shooter
-    // power)
-    private final CommandXboxController copilot = new CommandXboxController(1);
+        // ===== SLEW RATE LIMITERS =====
+        // These smooth out sudden joystick movements so the robot doesn't jerk.
+        // Value of 3.0 means it takes ~0.33 seconds to go from 0 to full speed.
+        private final SlewRateLimiter xLimiter = new SlewRateLimiter(5.0);
+        private final SlewRateLimiter yLimiter = new SlewRateLimiter(5.0);
+        private final SlewRateLimiter rotationLimiter = new SlewRateLimiter(5.0);
 
-    // Auto chooser — dropdown on the dashboard to pick autonomous routine
-    private final SendableChooser<Command> autoChooser;
+        // Xbox controller on USB port 0 (driver)
+        private final CommandXboxController controller = new CommandXboxController(0);
 
-    // Field2d — shows the robot's estimated position on a field map in
-    // Shuffleboard.
-    // Drag this widget from SmartDashboard and change its type to "Field2d" to see
-    // the robot icon moving on the field. Great for confirming vision + odometry.
-    private final Field2d field2d = new Field2d();
+        // Xbox controller on USB port 1 (co-pilot — live-tunes turret aim and shooter
+        // power)
+        private final CommandXboxController copilot = new CommandXboxController(1);
 
-    // Calibration dashboard — plain NetworkTables (arrange in Shuffleboard
-    // yourself)
-    private final DoublePublisher calRobotX;
-    private final DoublePublisher calRobotY;
-    private final DoublePublisher calRobotHeading;
-    private final DoublePublisher calDistToHub;
-    private final DoublePublisher calTargetX;
-    private final DoublePublisher calTargetY;
-    private edu.wpi.first.networktables.StringPublisher calAlliance;
-    private int telemetryCounter = 0;
+        // Auto chooser — dropdown on the dashboard to pick autonomous routine
+        private final SendableChooser<Command> autoChooser;
 
-    // ===== VISION TOGGLE =====
-    // When OFF, Limelight vision corrections are completely disabled.
-    // Useful if vision is causing problems during a match.
-    // Co-pilot right stick press toggles this.
-    private boolean visionEnabled = true;
+        // Field2d — shows the robot's estimated position on a field map in
+        // Shuffleboard.
+        // Drag this widget from SmartDashboard and change its type to "Field2d" to see
+        // the robot icon moving on the field. Great for confirming vision + odometry.
+        private final Field2d field2d = new Field2d();
 
-    // ===== PASS TARGET SIDE HYSTERESIS =====
-    // Tracks which side (left/right) we're currently passing to.
-    // true = left (high Y), false = right (low Y).
-    // Once committed, the robot must cross 1m past the midline to flip.
-    private boolean passTargetIsLeft = true;
+        // Calibration dashboard — plain NetworkTables (arrange in Shuffleboard
+        // yourself)
+        private final DoublePublisher calRobotX;
+        private final DoublePublisher calRobotY;
+        private final DoublePublisher calRobotHeading;
+        private final DoublePublisher calDistToHub;
+        private final DoublePublisher calTargetX;
+        private final DoublePublisher calTargetY;
+        private edu.wpi.first.networktables.StringPublisher calAlliance;
+        private int telemetryCounter = 0;
 
-    // ===== TRAJECTORY PHYSICS TOGGLE =====
-    // When true, ALL shots (hub and passing) use physics-based trajectory
-    // calculations.
-    // When false, ALL shots use the interpolation tables.
-    // Co-pilot Back button toggles this at runtime.
-    // During auto, interpolation tables are always used regardless of this toggle.
-    private boolean useTrajectoryPassing = Constants.FieldConstants.USE_TRAJECTORY_PASSING_DEFAULT;
+        // ===== VISION TOGGLE =====
+        // When OFF, Limelight vision corrections are completely disabled.
+        // Useful if vision is causing problems during a match.
+        // Co-pilot right stick press toggles this.
+        private boolean visionEnabled = true;
+
+        // ===== PASS TARGET SIDE HYSTERESIS =====
+        // Tracks which side (left/right) we're currently passing to.
+        // true = left (high Y), false = right (low Y).
+        // Once committed, the robot must cross 1m past the midline to flip.
+        private boolean passTargetIsLeft = true;
+
+        // ===== TRAJECTORY PHYSICS TOGGLE =====
+        // When true, ALL shots (hub and passing) use physics-based trajectory
+        // calculations.
+        // When false, ALL shots use the interpolation tables.
+        // Co-pilot Back button toggles this at runtime.
+        // During auto, interpolation tables are always used regardless of this toggle.
+        private boolean useTrajectoryPassing = Constants.FieldConstants.USE_TRAJECTORY_PASSING_DEFAULT;
 
     public RobotContainer() {
         // Wire up the robot X supplier for trench hood safety
@@ -253,28 +254,43 @@ public class RobotContainer {
         // Everything else is on the co-pilot controller.
         // ===================================================================
 
-        // Y BUTTON — toggle auto-shoot on/off
-        // Press once: aims turret, spins flywheels, feeds when ready
+                // Y BUTTON — toggle auto-shoot on/off
+        // Press once: aims turret, spins flywheels, feeds when ready, and spins spindexer
         // Press again: stops everything
         controller.y()
                 .toggleOnTrue(new AutoShootCommand(turretSubsystem, shooterSubsystem, drivetrain, this::getSmartTarget,
-                        this::isTrajectoryPassingEnabled));
+                        this::isTrajectoryPassingEnabled)
+                        .alongWith(
+                            new StartEndCommand(
+                                () -> shooterSubsystem.runIndexer(0.5), // Start the spindexer at 50% speed
+                                () -> shooterSubsystem.stopIndexer()    // Stop the spindexer when toggled off
+                            )
+                        ));
 
 controller.rightTrigger()
     .whileTrue(new StartEndCommand(
-        () -> shooterSubsystem.runFeeder(0.65), // Start: Run at 0.65
-        () -> shooterSubsystem.stopFeeder(),   // End: Stop the motor
-        shooterSubsystem                       // Subsystem requirement
+        () -> {
+            shooterSubsystem.runFeeder(0.65);
+            shooterSubsystem.runIndexer(0.50);
+        }, // Start: Run feeder and indexer
+        () -> {
+            shooterSubsystem.stopFeeder();
+            shooterSubsystem.stopIndexer();
+        }, // End: Stop both
+        shooterSubsystem // Subsystem requirement
     ));
 
-        if (followPath != null) {
-            controller.leftTrigger().onTrue(followPath);
-        }
+        Command cmd = AutoBuilder.pathfindThenFollowPath(
+        path,
+        new PathConstraints(3.0, 3.0, 2 * Math.PI, 4 * Math.PI)
+        );
 
-        controller.leftBumper()
+        controller.leftBumper().onTrue(cmd);
+
+        controller.leftTrigger()
                 .whileTrue(new StartEndCommand(
-                        () -> drivetrain.setSpeedMultiplier(0.4),
-                        () -> drivetrain.setSpeedMultiplier(1.0)));
+                        () -> drivetrain.setSpeedMultiplier(1.0),
+                        () -> drivetrain.setSpeedMultiplier(0.4)));
 
         // X BUTTON — toggle intake on/off
         // Press once: deploys intake out, starts rollers
@@ -316,23 +332,18 @@ controller.rightTrigger()
                             // --- COMMAND TO STOP (Retract & Stop) ---
                             // This only runs when the toggle is turned OFF (interrupting the RunCommand)
                             new SequentialCommandGroup(
-                                    new InstantCommand(intakeSubsystem::stopIntake, intakeSubsystem),
-                                    new InstantCommand(intakeSubsystem::deployIn, intakeSubsystem),
-                                    new WaitCommand(0.3),
-                                    new InstantCommand(intakeSubsystem::stopDeploy, intakeSubsystem),
-                                    new WaitCommand(0.5),
-                                    new InstantCommand(intakeSubsystem::changeConfigs, intakeSubsystem)).schedule(); // .schedule()
-                                                                                                                  // allows
-                                                                                                                  // this
-                                                                                                                  // to
-                                                                                                                  // run
-                                                                                                                  // even
-                                                                                                                  // after
-                                                                                                                  // the
-                                                                                                                  // parent
-                                                                                                                  // is
-                                                                                                                  // dead
-                        }));
+        new InstantCommand(intakeSubsystem::stopIntake, intakeSubsystem),
+        new InstantCommand(intakeSubsystem::deployIn, intakeSubsystem),
+        new WaitCommand(0.3),
+        new InstantCommand(intakeSubsystem::stopDeploy, intakeSubsystem),
+        new WaitCommand(0.5),
+        // GRAB CURRENT AVG POSITION AND HOLD
+        new InstantCommand(() -> {
+            double currentAvg = intakeSubsystem.getAverageDeployPosition();
+            intakeSubsystem.holdPosition(currentAvg);
+            // Optionally force it to brake mode here if it was in coast
+        }, intakeSubsystem)).schedule();
+        }));
 
         // A BUTTON — jostle intake to unstick balls
         // While held: continuously repeat the jostle sequence (with a short gap) until
@@ -541,11 +552,6 @@ controller.rightTrigger()
                         speedScale = 0.4; // Slow enough for hood servo to retract
                     }
 
-                    // ✅ DEFINE THESE FIRST
-                    double xInput = joystickCurve(-controller.getLeftY()) * speedScale * MaxSpeed;
-                    double yInput = joystickCurve(-controller.getLeftX()) * speedScale * MaxSpeed;
-                    double rotInput = joystickCurve(-controller.getRightX()) * 0.85 * MaxAngularRate;
-
                     // ✅ GET SPEEDS FROM POSE
                     // This gets the actual physical velocity of the robot from the Pose Estimator
                     ChassisSpeeds currentRobotSpeeds = drivetrain.getState().Speeds;
@@ -567,144 +573,145 @@ controller.rightTrigger()
                 }));
     }
 
-    /** Returns the selected autonomous command from the dashboard dropdown */
-    public Command getAutonomousCommand() {
-        return autoChooser.getSelected();
-    }
-
-    /**
-     * Returns the hub pose for the current alliance. Used by auto commands
-     * that should always aim at the hub regardless of field position.
-     */
-    public Pose2d getAllianceHub() {
-        var alliance = DriverStation.getAlliance();
-        if (alliance.isPresent() && alliance.get() == Alliance.Red) {
-            return Constants.FieldConstants.RED_HUB_POSE;
-        }
-        return Constants.FieldConstants.BLUE_HUB_POSE;
-    }
-
-    /**
-     * Returns the target to aim at based on alliance color and field position.
-     *
-     * When the robot is on its own side (inside the alliance zone), aim at the hub.
-     * When the robot crosses the alliance line into neutral/opponent territory,
-     * switch to a passing target — lob toward our alliance wall, ~4m in from
-     * whichever side wall is closer.
-     */
-    public Pose2d getSmartTarget() {
-        var alliance = DriverStation.getAlliance();
-        boolean isRed = alliance.isPresent() && alliance.get() == Alliance.Red;
-
-        // Safety: if alliance is not set, try to guess from robot position.
-        if (!alliance.isPresent()) {
-            double robotX = drivetrain.getState().Pose.getX();
-            isRed = robotX > (Constants.FieldConstants.FIELD_LENGTH_METERS / 2.0);
+        /** Returns the selected autonomous command from the dashboard dropdown */
+        public Command getAutonomousCommand() {
+                return autoChooser.getSelected();
         }
 
-        double robotX = drivetrain.getState().Pose.getX();
-        double robotY = drivetrain.getState().Pose.getY();
-        double fieldMidY = Constants.FieldConstants.FIELD_WIDTH_METERS / 2.0;
-        double hysteresis = Constants.FieldConstants.PASS_Y_HYSTERESIS;
-
-        // Update left/right side with hysteresis — must cross 1m past midline to flip.
-        // If currently targeting left (high Y), only switch to right when Y drops below
-        // midline - buffer.
-        // If currently targeting right (low Y), only switch to left when Y rises above
-        // midline + buffer.
-        if (passTargetIsLeft && robotY < fieldMidY - hysteresis) {
-            passTargetIsLeft = false;
-        } else if (!passTargetIsLeft && robotY > fieldMidY + hysteresis) {
-            passTargetIsLeft = true;
+        /**
+         * Returns the hub pose for the current alliance. Used by auto commands
+         * that should always aim at the hub regardless of field position.
+         */
+        public Pose2d getAllianceHub() {
+                var alliance = DriverStation.getAlliance();
+                if (alliance.isPresent() && alliance.get() == Alliance.Red) {
+                        return Constants.FieldConstants.RED_HUB_POSE;
+                }
+                return Constants.FieldConstants.BLUE_HUB_POSE;
         }
 
-        if (isRed) {
-            // Red alliance zone: X > RED_ZONE_START (12.51m)
-            // Past alliance line = X < RED_ZONE_START
-            if (robotX < Constants.FieldConstants.RED_ZONE_START) {
-                return passTargetIsLeft
-                        ? Constants.FieldConstants.RED_PASS_LEFT
-                        : Constants.FieldConstants.RED_PASS_RIGHT;
-            }
-            return Constants.FieldConstants.RED_HUB_POSE;
-        } else {
-            // Blue alliance zone: X < BLUE_ZONE_END (4.03m)
-            // Past alliance line = X > BLUE_ZONE_END
-            if (robotX > Constants.FieldConstants.BLUE_ZONE_END) {
-                return passTargetIsLeft
-                        ? Constants.FieldConstants.BLUE_PASS_LEFT
-                        : Constants.FieldConstants.BLUE_PASS_RIGHT;
-            }
-            return Constants.FieldConstants.BLUE_HUB_POSE;
+        /**
+         * Returns the target to aim at based on alliance color and field position.
+         *
+         * When the robot is on its own side (inside the alliance zone), aim at the hub.
+         * When the robot crosses the alliance line into neutral/opponent territory,
+         * switch to a passing target — lob toward our alliance wall, ~4m in from
+         * whichever side wall is closer.
+         */
+        public Pose2d getSmartTarget() {
+                var alliance = DriverStation.getAlliance();
+                boolean isRed = alliance.isPresent() && alliance.get() == Alliance.Red;
+
+                // Safety: if alliance is not set, try to guess from robot position.
+                if (!alliance.isPresent()) {
+                        double robotX = drivetrain.getState().Pose.getX();
+                        isRed = robotX > (Constants.FieldConstants.FIELD_LENGTH_METERS / 2.0);
+                }
+
+                double robotX = drivetrain.getState().Pose.getX();
+                double robotY = drivetrain.getState().Pose.getY();
+                double fieldMidY = Constants.FieldConstants.FIELD_WIDTH_METERS / 2.0;
+                double hysteresis = Constants.FieldConstants.PASS_Y_HYSTERESIS;
+
+                // Update left/right side with hysteresis — must cross 1m past midline to flip.
+                // If currently targeting left (high Y), only switch to right when Y drops below
+                // midline - buffer.
+                // If currently targeting right (low Y), only switch to left when Y rises above
+                // midline + buffer.
+                if (passTargetIsLeft && robotY < fieldMidY - hysteresis) {
+                        passTargetIsLeft = false;
+                } else if (!passTargetIsLeft && robotY > fieldMidY + hysteresis) {
+                        passTargetIsLeft = true;
+                }
+
+                if (isRed) {
+                        // Red alliance zone: X > RED_ZONE_START (12.51m)
+                        // Past alliance line = X < RED_ZONE_START
+                        if (robotX < Constants.FieldConstants.RED_ZONE_START) {
+                                return passTargetIsLeft
+                                                ? Constants.FieldConstants.RED_PASS_LEFT
+                                                : Constants.FieldConstants.RED_PASS_RIGHT;
+                        }
+                        return Constants.FieldConstants.RED_HUB_POSE;
+                } else {
+                        // Blue alliance zone: X < BLUE_ZONE_END (4.03m)
+                        // Past alliance line = X > BLUE_ZONE_END
+                        if (robotX > Constants.FieldConstants.BLUE_ZONE_END) {
+                                return passTargetIsLeft
+                                                ? Constants.FieldConstants.BLUE_PASS_LEFT
+                                                : Constants.FieldConstants.BLUE_PASS_RIGHT;
+                        }
+                        return Constants.FieldConstants.BLUE_HUB_POSE;
+                }
         }
-    }
 
-    /** Called from Robot.robotPeriodic() — updates calibration values (~10Hz) */
-    public void updateCalibrationTelemetry() {
-        // Update Field2d every loop (50Hz) so the robot icon moves smoothly
-        Pose2d pose = drivetrain.getState().Pose;
-        field2d.setRobotPose(pose);
+        /** Called from Robot.robotPeriodic() — updates calibration values (~10Hz) */
+        public void updateCalibrationTelemetry() {
+                // Update Field2d every loop (50Hz) so the robot icon moves smoothly
+                Pose2d pose = drivetrain.getState().Pose;
+                field2d.setRobotPose(pose);
 
-        telemetryCounter++;
-        if (telemetryCounter % 5 != 0)
-            return; // ~10Hz for the rest
+                telemetryCounter++;
+                if (telemetryCounter % 5 != 0)
+                        return; // ~10Hz for the rest
 
-        Pose2d target = getSmartTarget();
-        double dist = pose.getTranslation().getDistance(target.getTranslation());
+                Pose2d target = getSmartTarget();
+                double dist = pose.getTranslation().getDistance(target.getTranslation());
 
-        calRobotX.set(pose.getX());
-        calRobotY.set(pose.getY());
-        calRobotHeading.set(pose.getRotation().getDegrees());
-        calDistToHub.set(dist);
-        calTargetX.set(target.getX());
-        calTargetY.set(target.getY());
+                calRobotX.set(pose.getX());
+                calRobotY.set(pose.getY());
+                calRobotHeading.set(pose.getRotation().getDegrees());
+                calDistToHub.set(dist);
+                calTargetX.set(target.getX());
+                calTargetY.set(target.getY());
 
-        var alliance = DriverStation.getAlliance();
-        calAlliance.set(alliance.isPresent()
-                ? (alliance.get() == Alliance.Red ? "RED" : "BLUE")
-                : "NOT SET");
+                var alliance = DriverStation.getAlliance();
+                calAlliance.set(alliance.isPresent()
+                                ? (alliance.get() == Alliance.Red ? "RED" : "BLUE")
+                                : "NOT SET");
 
-        SmartDashboard.putBoolean("Vision Enabled", visionEnabled);
+                SmartDashboard.putBoolean("Vision Enabled", visionEnabled);
 
-        // Zone debug — shows exactly what getSmartTarget decided
-        boolean inTrench = Constants.FieldConstants.isInTrenchZone(pose.getX());
-        SmartDashboard.putBoolean("In Trench", inTrench);
-        SmartDashboard.putString("Target Zone",
-                inTrench ? "TRENCH"
-                        : target.equals(Constants.FieldConstants.BLUE_HUB_POSE) ? "BLUE HUB"
-                                : target.equals(Constants.FieldConstants.RED_HUB_POSE) ? "RED HUB"
-                                        : "PASSING");
-    }
-
-    /** Returns true if the co-pilot has vision enabled (right stick toggle). */
-    public boolean isVisionEnabled() {
-        return visionEnabled;
-    }
-
-    /**
-     * Returns true if trajectory physics is enabled for passing shots (co-pilot
-     * Back toggle).
-     */
-    public boolean isTrajectoryPassingEnabled() {
-        return useTrajectoryPassing;
-    }
-
-    /**
-     * Convert a driver-relative heading to a field-relative heading based on
-     * alliance.
-     * On blue alliance, the driver faces 0° (toward red wall) — no offset needed.
-     * On red alliance, the driver faces 180° — rotate the target by 180°.
-     *
-     * @param driverRelative the heading from the driver's perspective (0° = away
-     *                       from driver)
-     * @return field-relative heading for the swerve request
-     */
-    private Rotation2d getAllianceRotation(Rotation2d driverRelative) {
-        var alliance = DriverStation.getAlliance();
-        boolean isRed = alliance.isPresent() && alliance.get() == Alliance.Red;
-        if (isRed) {
-            return driverRelative.plus(Rotation2d.k180deg);
+                // Zone debug — shows exactly what getSmartTarget decided
+                boolean inTrench = Constants.FieldConstants.isInTrenchZone(pose.getX());
+                SmartDashboard.putBoolean("In Trench", inTrench);
+                SmartDashboard.putString("Target Zone",
+                                inTrench ? "TRENCH"
+                                                : target.equals(Constants.FieldConstants.BLUE_HUB_POSE) ? "BLUE HUB"
+                                                                : target.equals(Constants.FieldConstants.RED_HUB_POSE)
+                                                                                ? "RED HUB"
+                                                                                : "PASSING");
         }
-        return driverRelative;
-    }
+
+        /** Returns true if the co-pilot has vision enabled (right stick toggle). */
+        public boolean isVisionEnabled() {
+                return visionEnabled;
+        }
+
+        /**
+         * Returns true if trajectory physics is enabled for passing shots (co-pilot
+         * Back toggle).
+         */
+        public boolean isTrajectoryPassingEnabled() {
+                return useTrajectoryPassing;
+        }
+
+        /**
+         * Convert a driver-relative heading to a field-relative heading based on
+         * alliance.
+         * On blue alliance, the driver faces 0° (toward red wall) — no offset needed.
+         * On red alliance, the driver faces 180° — rotate the target by 180°.
+         *
+         * @param driverRelative the heading from the driver's perspective (0° = away
+         *                       from driver)
+         * @return field-relative heading for the swerve request
+         */
+        private Rotation2d getAllianceRotation(Rotation2d driverRelative) {
+                var alliance = DriverStation.getAlliance();
+                boolean isRed = alliance.isPresent() && alliance.get() == Alliance.Red;
+                if (isRed) {
+                        return driverRelative.plus(Rotation2d.k180deg);
+                }
+                return driverRelative;
+        }
 }
