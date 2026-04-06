@@ -106,8 +106,6 @@ public class RobotContainer {
         private final TurretSubsystem turretSubsystem = new TurretSubsystem();
         private final ShooterSubsystem shooterSubsystem = new ShooterSubsystem();
         private final IntakeSubsystem intakeSubsystem = new IntakeSubsystem();
-        private final frc.robot.subsystems.ClimberSubsystem climber = new frc.robot.subsystems.ClimberSubsystem();
-        // ClimberSubsystem — not wired yet, uncomment when ready
 
         // Telemetry — sends drivetrain data to the dashboard
         private final Telemetry logger = new Telemetry(MaxSpeed);
@@ -177,17 +175,14 @@ public class RobotContainer {
         // Once committed, the robot must cross 1m past the midline to flip.
         private boolean passTargetIsLeft = true;
 
-        // ===== TRAJECTORY PHYSICS TOGGLE =====
-        // When true, ALL shots (hub and passing) use physics-based trajectory
-        // calculations.
-        // When false, ALL shots use the interpolation tables.
-        // Co-pilot Back button toggles this at runtime.
-        // During auto, interpolation tables are always used regardless of this toggle.
-        private boolean useTrajectoryPassing = Constants.FieldConstants.USE_TRAJECTORY_PASSING_DEFAULT;
+        // ===== TRAJECTORY PHYSICS =====
+        // Physics vs table blending is now automatic based on robot speed.
+        // No toggle needed — stationary uses tables, moving blends in physics.
 
     public RobotContainer() {
         // Wire up the robot X supplier for trench hood safety
         shooterSubsystem.setRobotXSupplier(() -> drivetrain.getState().Pose.getX());
+        shooterSubsystem.setRobotYSupplier(() -> drivetrain.getState().Pose.getY());
 
         // ===== NAMED COMMANDS FOR PATHPLANNER =====
         // PathPlanner autonomous routines can trigger these by name.
@@ -197,7 +192,7 @@ public class RobotContainer {
         // AutoShoot — aims turret at hub, spins flywheels, feeds when ready.
         // Hub-only targeting for auto (driver controls pass targeting in teleop).
         NamedCommands.registerCommand("AutoShoot",
-                new AutoShootCommand(turretSubsystem, shooterSubsystem, drivetrain, this::getAllianceHub, () -> false));
+                new AutoShootCommand(turretSubsystem, shooterSubsystem, drivetrain, this::getAllianceHub));
 
         // StopShooter — kills flywheels, feeder, indexer, and flattens hood.
         // Use when leaving alliance zone to collect — don't waste power spinning.
@@ -218,10 +213,7 @@ public class RobotContainer {
             intakeSubsystem.deployIn();
         }, intakeSubsystem));
 
-        // Climb — start the climber level cycle for endgame.
-        NamedCommands.registerCommand("Climb", Commands.runOnce(() -> {
-            climber.toggleLevelCycle();
-        }));
+        // Climb — removed from robot for this competition.
 
         // ===== AUTO CHOOSER =====
         // Builds a dropdown from all PathPlanner auto files in
@@ -250,16 +242,25 @@ public class RobotContainer {
         // ===================================================================
         // DRIVER CONTROLLER (USB port 0)
         // ===================================================================
-        // The driver only has 4 buttons — drive, shoot, intake, jostle, reset.
-        // Everything else is on the co-pilot controller.
+        // Y = toggle auto-shoot on/off
+        // X = toggle intake on/off
+        // A = jostle intake (hold)
+        // B = (free)
+        // Right Trigger = manual feeder + indexer (hold)
+        // Left Trigger = speed boost to 100% (hold, default is 40%)
+        // Left Bumper = pathfind and follow path
+        // Right Bumper = (free)
+        // Back = reset field-centric heading
+        // D-pad = snap-to-heading (face specific direction while driving)
+        // Left Stick = drive (field-centric)
+        // Right Stick = rotate
         // ===================================================================
 
                 // Y BUTTON — toggle auto-shoot on/off
         // Press once: aims turret, spins flywheels, feeds when ready, and spins spindexer
         // Press again: stops everything
         controller.y()
-                .toggleOnTrue(new AutoShootCommand(turretSubsystem, shooterSubsystem, drivetrain, this::getSmartTarget,
-                        this::isTrajectoryPassingEnabled)
+                .toggleOnTrue(new AutoShootCommand(turretSubsystem, shooterSubsystem, drivetrain, this::getSmartTarget)
                         .alongWith(
                             new StartEndCommand(
                                 () -> shooterSubsystem.runIndexer(0.5), // Start the spindexer at 50% speed
@@ -267,6 +268,9 @@ public class RobotContainer {
                             )
                         ));
 
+        // RIGHT TRIGGER — manual feeder + indexer (hold)
+        // While held: runs feeder at 65% and indexer at 50%
+        // Releases: stops both
 controller.rightTrigger()
     .whileTrue(new StartEndCommand(
         () -> {
@@ -285,8 +289,12 @@ controller.rightTrigger()
         new PathConstraints(3.0, 3.0, 2 * Math.PI, 4 * Math.PI)
         );
 
+        // LEFT BUMPER — pathfind and follow "Left Sweep" path
         controller.leftBumper().onTrue(cmd);
 
+        // LEFT TRIGGER — speed boost (hold)
+        // While held: sets speed multiplier to 1.0 (full speed)
+        // Released: returns to 0.4 (40% speed — the default)
         controller.leftTrigger()
                 .whileTrue(new StartEndCommand(
                         () -> drivetrain.setSpeedMultiplier(1.0),
@@ -295,31 +303,6 @@ controller.rightTrigger()
         // X BUTTON — toggle intake on/off
         // Press once: deploys intake out, starts rollers
         // Press again: retracts intake, stops rollers
-        //
-        // How this works:
-        // 1. Deploy out for 0.3s, then stop deploy motor
-        // 2. Run rollers until the button is toggled off (RunCommand keeps going)
-        // 3. When cancelled: stop rollers, retract for 0.3s, then stop deploy
-        //
-        // The retract sequence is part of the command chain (not a fire-and-forget
-        // schedule call) so we avoid the deprecated Command.schedule() API.
-        // controller.x()
-        // .toggleOnTrue(
-        // // Phase 1: Deploy out, wait, stop deploy, then run rollers
-        // new SequentialCommandGroup(
-        // new InstantCommand(() -> intakeSubsystem.deployOut(), intakeSubsystem),
-        // new WaitCommand(0.3),
-        // new InstantCommand(() -> intakeSubsystem.stopDeploy()),
-        // new RunCommand(() -> intakeSubsystem.runIntake(0.5),
-        // intakeSubsystem)).finallyDo(() -> {
-        // // Immediately stop rollers and start retracting.
-        // intakeSubsystem.stopIntake();
-        // intakeSubsystem.deployIn();
-        // })
-        // // Phase 2: After cancel/end, give deploy motor 0.3s to retract, then stop it
-        // .andThen(new WaitCommand(0.3))
-        // .andThen(new InstantCommand(() -> intakeSubsystem.stopDeploy())));
-
         controller.x().toggleOnTrue(
                 // --- COMMAND TO START (Deploy & Spin) ---
                 new SequentialCommandGroup(
@@ -351,11 +334,7 @@ controller.rightTrigger()
         controller.a()
                 .whileTrue(new RepeatCommand(intakeSubsystem.jostleCommand()));
 
-        // B BUTTON — toggle elevator between home and preset (index 1)
-        // Press once: go to preset target (index 1 = 29.0). Press again: return to home
-        // (index 0 = 0.0).
-        controller.b()
-                .onTrue(new InstantCommand(() -> climber.togglePresetIndex(1)));
+        // B BUTTON — (free)
 
         // BACK BUTTON — reset field-centric heading
         // Determines the correct heading based on alliance color.
@@ -367,8 +346,7 @@ controller.rightTrigger()
                     boolean isRed = alliance.isPresent() && alliance.get() == Alliance.Red;
                     drivetrain.seedFieldCentric(isRed ? Rotation2d.kZero : Rotation2d.k180deg);
                 }));
-        controller.rightBumper()
-                .onTrue(new InstantCommand(() -> climber.toggleGearboxLock()));
+        // RIGHT BUMPER — (free — climber removed)
 
         // --- D-pad (snap-to-heading — face a specific direction while driving) ---
         // While held: drive normally with left stick, but robot heading snaps to the
@@ -422,39 +400,30 @@ controller.rightTrigger()
         // ===================================================================
         // CO-PILOT CONTROLLER (USB port 1)
         // ===================================================================
-        // Turret always auto-tracks the hub. Co-pilot handles tuning,
-        // elevator, intake jostle, and emergency stop.
+        // Turret always auto-tracks the hub. Co-pilot handles live tuning
+        // and emergency controls.
         //
-        // Y = jostle intake (hold)
-        // X = move elevator up (hold)
-        // A = move elevator down (hold)
+        // Y = jostle intake
+        // X = (free)
+        // A = (free)
         // B = emergency stop shooter
-        // Bumpers = nudge hood up/down
-        // D-pad L/R = aim offset ±1°
-        // D-pad U/D = power offset ±1 RPS
+        // Left Bumper = nudge hood up (hold)
+        // Right Bumper = nudge hood down (hold)
+        // D-pad Left/Right = aim offset ±1°
+        // D-pad Up/Down = power offset ±1 RPS
         // Right Stick Press = toggle vision on/off
-        // Back = toggle trajectory physics (all shots)
+        // Back = (free)
         // ===================================================================
 
         // --- Face buttons ---
 
-        // Y — jostle intake (co-pilot can trigger jostle for the driver)
+        // Y — jostle intake
         copilot.y()
                 .onTrue(intakeSubsystem.jostleCommand());
 
-        // X — manually move elevator up slowly (hold to move)
-        copilot.x()
-                .whileTrue(new edu.wpi.first.wpilibj2.command.StartEndCommand(
-                        () -> climber.runElevator(0.25),
-                        () -> climber.stopElevator(),
-                        climber));
+        // X — (free)
 
-        // A — manually move elevator down slowly (hold to move)
-        copilot.a()
-                .whileTrue(new edu.wpi.first.wpilibj2.command.StartEndCommand(
-                        () -> climber.runElevator(-0.25),
-                        () -> climber.stopElevator(),
-                        climber));
+        // A — (free)
 
         // B — emergency stop all shooter motors
         copilot.b()
@@ -498,17 +467,7 @@ controller.rightTrigger()
                     System.out.println(">>> VISION: " + (visionEnabled ? "ON" : "OFF") + " <<<");
                 }));
 
-        // Back — toggle trajectory physics for ALL shots (hub and passing)
-        // OFF (default): all shots use interpolation tables (safe, proven)
-        // ON: all shots use physics-based trajectory (experimental, more accurate at
-        // range)
-        // During auto, interpolation tables are always used regardless of this toggle.
-        copilot.back()
-                .onTrue(new InstantCommand(() -> {
-                    useTrajectoryPassing = !useTrajectoryPassing;
-                    SmartDashboard.putBoolean("Trajectory Passing", useTrajectoryPassing);
-                    System.out.println(">>> TRAJECTORY PASSING: " + (useTrajectoryPassing ? "ON" : "OFF") + " <<<");
-                })); // ===== IDLE BEHAVIOR =====
+        // Back — (free — trajectory toggle removed, blending is automatic) // ===== IDLE BEHAVIOR =====
         // When the robot is disabled, set swerve modules to idle (no power)
         final var idle = new SwerveRequest.Idle();
         RobotModeTriggers.disabled().whileTrue(
@@ -531,6 +490,15 @@ controller.rightTrigger()
                         drivetrain.getState().Speeds),
                 turretSubsystem));
 
+        // Shooter default: flywheels off when not actively shooting.
+        // AutoShootCommand requires the shooter subsystem, so this default is
+        // automatically interrupted when shooting and resumes when shooting stops.
+        shooterSubsystem.setDefaultCommand(new RunCommand(
+                () -> {
+                    shooterSubsystem.stopFlywheels();
+                },
+                shooterSubsystem));
+
         // Drivetrain default: drive using joystick input with cubic curve + slew rate
         // limiting
         // The 0.75 and 0.85 multipliers cap max speed for safety during testing
@@ -543,13 +511,17 @@ controller.rightTrigger()
                 drivetrain.applyRequest(() -> {
                     double speedScale = 0.75;
 
-                    // Slow down near trench if hood is raised
+                    // Slow down near trench if hood is raised — need time for servo to retract.
+                    // 20% speed if hood is up (aggressive slow to protect hardware).
+                    // Normal speed if hood is already flat.
                     double robotX = drivetrain.getState().Pose.getX();
-                    boolean nearTrench = Constants.FieldConstants.isInTrenchZone(robotX)
-                            || Constants.FieldConstants.isNearTrenchZone(robotX);
+                    double robotY = drivetrain.getState().Pose.getY();
+                    boolean nearTrench = (Constants.FieldConstants.isInTrenchZone(robotX)
+                            || Constants.FieldConstants.isNearTrenchZone(robotX))
+                            && Constants.FieldConstants.isOnTrenchSide(robotY);
                     if (nearTrench
                             && shooterSubsystem.getHoodPosition() > Constants.FieldConstants.TRENCH_HOOD_THRESHOLD) {
-                        speedScale = 0.4; // Slow enough for hood servo to retract
+                        speedScale = 0.20;
                     }
 
                     // ✅ GET SPEEDS FROM POSE
@@ -672,6 +644,15 @@ controller.rightTrigger()
 
                 SmartDashboard.putBoolean("Vision Enabled", visionEnabled);
 
+                // Robot speed for at-rest vs moving diagnostics
+                ChassisSpeeds speeds = drivetrain.getState().Speeds;
+                ChassisSpeeds fieldSpeeds = ChassisSpeeds.fromRobotRelativeSpeeds(
+                        speeds, pose.getRotation());
+                double robotSpeed = Math.hypot(
+                        fieldSpeeds.vxMetersPerSecond, fieldSpeeds.vyMetersPerSecond);
+                SmartDashboard.putNumber("Robot Speed m/s", robotSpeed);
+                SmartDashboard.putBoolean("At Rest", robotSpeed < 0.1);
+
                 // Zone debug — shows exactly what getSmartTarget decided
                 boolean inTrench = Constants.FieldConstants.isInTrenchZone(pose.getX());
                 SmartDashboard.putBoolean("In Trench", inTrench);
@@ -686,14 +667,6 @@ controller.rightTrigger()
         /** Returns true if the co-pilot has vision enabled (right stick toggle). */
         public boolean isVisionEnabled() {
                 return visionEnabled;
-        }
-
-        /**
-         * Returns true if trajectory physics is enabled for passing shots (co-pilot
-         * Back toggle).
-         */
-        public boolean isTrajectoryPassingEnabled() {
-                return useTrajectoryPassing;
         }
 
         /**

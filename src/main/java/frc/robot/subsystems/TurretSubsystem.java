@@ -39,10 +39,10 @@ import frc.robot.Constants;
  * - Positive rotation = counterclockwise (viewed from above)
  * - Positions are in "mechanism rotations" (1.0 = full 360 turn)
  *
- * TURRET RANGE (asymmetric!):
- * - CCW (positive): up to +420 degrees (+1.1667 mechanism rotations)
- * - CW (negative):  up to -245 degrees (-0.6806 mechanism rotations)
- * - Total travel: 665 degrees
+ * TURRET RANGE:
+ * - CCW (positive): up to +450 degrees (+1.25 mechanism rotations)
+ * - CW (negative):  up to -90 degrees (-0.25 mechanism rotations)
+ * - Total travel: 540 degrees
  *
  * Because the turret can go past 360 degrees, any target angle has TWO
  * equivalent positions (e.g., +90 deg and +90-360 = -270 deg). We pick
@@ -72,10 +72,11 @@ public class TurretSubsystem extends SubsystemBase {
     private static final Translation2d TURRET_OFFSET = new Translation2d(-0.1143, 0.1016);
 
     // ===== TURRET TRAVEL LIMITS =====
-    // CCW (positive direction, viewed from above): 420 degrees = 420/360 = 1.1667 rotations
-    // CW (negative direction, viewed from above): 245 degrees = 245/360 = 0.6806 rotations
-    private static final double MAX_MECHANISM_ROTATIONS = 1.22;   // +1.1667
-    private static final double MIN_MECHANISM_ROTATIONS = -0.40;  // -0.6806
+    // CCW (positive direction, viewed from above): 450 degrees = 450/360 = 1.25 rotations
+    // CW (negative direction, viewed from above): 90 degrees = 90/360 = 0.25 rotations
+    // Total travel: 540 degrees
+    private static final double MAX_MECHANISM_ROTATIONS = 1.25;   // +450° CCW
+    private static final double MIN_MECHANISM_ROTATIONS = -0.25;  // -90° CW
 
     // ===== RESET DETECTION =====
     // When the turret needs to travel more than this many rotations to reach
@@ -83,8 +84,9 @@ public class TurretSubsystem extends SubsystemBase {
     // 0.6 rotations = 216 degrees — any move bigger than this is a reset.
     private static final double RESET_THRESHOLD_ROTATIONS = 0.6;
     // How close the turret must be to the target to consider the reset "done"
-    // 0.02 rotations = ~7 degrees
-    private static final double RESET_DONE_TOLERANCE = 0.02;
+    // 0.005 rotations = ~1.8 degrees — tighter than before to prevent firing
+    // while still settling from a reset
+    private static final double RESET_DONE_TOLERANCE = 0.005;
 
 
     // Tracks whether the turret is currently doing a long reset move
@@ -140,6 +142,7 @@ public class TurretSubsystem extends SubsystemBase {
     private final BooleanPublisher ntResetting;
     private final DoublePublisher ntAimOffset;
     private int telemetryCounter = 0;
+    private double lastAimErrorDegrees = 0.0;
 
     public TurretSubsystem() {
         // PID + Feedforward gains for position control
@@ -158,16 +161,15 @@ public class TurretSubsystem extends SubsystemBase {
             .withKA(0.1)   // Acceleration feedforward for Motion Magic profile
             .withStaticFeedforwardSign(StaticFeedforwardSignValue.UseClosedLoopSign);
 
-        // Slot 1: Gentle gains for reset moves (360° wrap-around).
-        // Lower KP = slower approach, higher KD = more damping to prevent overshoot.
-        // KV adds velocity feedforward for smoother motion.
+        // Slot 1: Reset moves (360° wrap-around).
+        // Mechanics upgraded — running fast. +25% from last tuning pass.
         var slot1 = new Slot1Configs()
-            .withKP(15.0)
+            .withKP(31.0)
             .withKI(0.0)
             .withKD(0.5)
             .withKS(0.5)
-            .withKV(0.65)
-            .withKA(0.05)
+            .withKV(1.25)
+            .withKA(0.10)
             .withStaticFeedforwardSign(StaticFeedforwardSignValue.UseClosedLoopSign);
 
         // Motion Magic profile limits — prevents teeth skipping by controlling
@@ -229,6 +231,21 @@ public class TurretSubsystem extends SubsystemBase {
      */
     public boolean isResetting() {
         return isResetting;
+    }
+
+    /**
+     * Returns true if a reset is about to happen — the turret is near a soft
+     * limit and the target would require a large move. AutoShootCommand uses
+     * this to stop the feeder ~100ms BEFORE the reset starts, preventing a
+     * ball from firing during the wrap-around.
+     */
+    public boolean isResetImminent(Pose2d robotPose, Pose2d targetPose, ChassisSpeeds speeds) {
+        if (isResetting) return true; // Already resetting
+        Translation2d compensated = getCompensatedTarget(robotPose, targetPose, speeds);
+        Pose2d compensatedPose = new Pose2d(compensated, targetPose.getRotation());
+        double targetMechRot = calculateTargetMechanismRotations(robotPose, compensatedPose);
+        double currentPos = turretMotor.getPosition().getValueAsDouble();
+        return Math.abs(targetMechRot - currentPos) > (RESET_THRESHOLD_ROTATIONS * 0.8);
     }
 
     /** Nudge the aim offset left (CCW). Called by co-pilot D-pad left. */
@@ -320,13 +337,25 @@ public class TurretSubsystem extends SubsystemBase {
     // This is more accurate than a fixed time offset because the compensation
     // amount depends on the actual shot distance, which changes as we compensate.
     //
-    // SHOT_SPEED_MPS: approximate average ball speed in flight (meters per second).
-    // Used to estimate time-of-flight. Doesn't need to be exact — the iteration
-    // converges even with a rough estimate. Tune by measuring actual shot speed
-    // at a few distances and averaging.
-    private static final double SHOT_SPEED_MPS = 6.0;
     // Number of refinement iterations. 4 is plenty — error is negligible after 3.
     private static final int COMPENSATION_ITERATIONS = 4;
+
+    /**
+     * Estimate ball speed in flight based on distance to target.
+     * Close shots exit faster (higher RPS, shorter distance = less drag time).
+     * Far shots are slower. This makes velocity compensation more accurate
+     * than a single fixed constant across all distances.
+     *
+     * Reduced from original values — on-the-move testing showed compensation
+     * was too weak (shots drifting ~2ft in the direction of travel at medium speed).
+     * Lower shot speed = longer estimated flight time = more compensation.
+     */
+    private static double estimateShotSpeed(double distanceMeters) {
+        if (distanceMeters < 2.0) return 5.5;
+        if (distanceMeters < 3.0) return 4.5;
+        if (distanceMeters < 4.0) return 4.0;
+        return 3.5;
+    }
 
     /**
      * Sends the turret to a target position, automatically detecting if this
@@ -362,25 +391,14 @@ public class TurretSubsystem extends SubsystemBase {
     /**
      * Compute a velocity-compensated aim point using iterative refinement.
      *
-     * The idea (from The Flying Circuits): the ball inherits the robot's velocity
-     * when launched. To cancel that out, we shift the virtual target backwards by
-     * (robot velocity × time-of-flight). But shifting the target changes the distance,
-     * which changes the time-of-flight, so we iterate until it converges.
+     * The ball inherits the robot's velocity when launched. To cancel that out,
+     * we shift the virtual target backwards by (robot velocity × time-of-flight).
      *
-     * When the robot is stationary (speed < 0.1 m/s), returns the original target
-     * to avoid jitter from encoder noise.
-     *
-     * @param robotPose   current robot pose
-     * @param targetPose  real target on the field
-     * @param fieldSpeeds field-relative chassis speeds
-     * @return the compensated target translation to aim at
+     * When the robot is stationary (speed < 0.1 m/s), returns the original target.
      */
     public Translation2d getCompensatedTarget(Pose2d robotPose, Pose2d targetPose, ChassisSpeeds robotRelativeSpeeds) {
         Translation2d originalTarget = targetPose.getTranslation();
 
-        // Convert robot-relative speeds to field-relative speeds.
-        // getState().Speeds returns robot-relative (vx = forward, vy = left),
-        // but we need field-relative to shift the target on the field.
         ChassisSpeeds fieldSpeeds = ChassisSpeeds.fromRobotRelativeSpeeds(
             robotRelativeSpeeds, robotPose.getRotation());
 
@@ -399,9 +417,8 @@ public class TurretSubsystem extends SubsystemBase {
         Translation2d compensated = originalTarget;
         for (int i = 0; i < COMPENSATION_ITERATIONS; i++) {
             double distance = turretFieldPos.getDistance(compensated);
-            double timeOfFlight = distance / SHOT_SPEED_MPS;
-            // Shift target opposite to robot velocity by the flight time.
-            // If driving right, the ball drifts right, so aim left of the target.
+            double shotSpeed = estimateShotSpeed(distance);
+            double timeOfFlight = distance / shotSpeed;
             compensated = originalTarget.minus(velocityVector.times(timeOfFlight));
         }
         return compensated;
@@ -435,10 +452,16 @@ public class TurretSubsystem extends SubsystemBase {
         goToPosition(finalTarget);
     }
 
-    /** Returns true when turret is aimed within ~1.5 degrees of target AND not resetting. */
-    public boolean isAimedAtPose(Pose2d robotPose, Pose2d targetPose) {
+    /**
+     * Returns true when turret is aimed within ~1.5 degrees of the velocity-compensated
+     * target AND not resetting. This now checks against the same compensated aim point
+     * that aimAtPose() uses, so moving shots are correctly gated.
+     */
+    public boolean isAimedAtPose(Pose2d robotPose, Pose2d targetPose, ChassisSpeeds speeds) {
         if (isResetting) return false; // Never "aimed" during a reset
-        double targetMechRot = calculateTargetMechanismRotations(robotPose, targetPose);
+        Translation2d compensated = getCompensatedTarget(robotPose, targetPose, speeds);
+        Pose2d compensatedPose = new Pose2d(compensated, targetPose.getRotation());
+        double targetMechRot = calculateTargetMechanismRotations(robotPose, compensatedPose);
         double currentPos = turretMotor.getPosition().getValueAsDouble();
         return Math.abs(currentPos - targetMechRot) < 0.004; // 0.004 rot = ~1.5 degrees
     }
@@ -451,8 +474,18 @@ public class TurretSubsystem extends SubsystemBase {
         double pos = turretMotor.getPosition().getValueAsDouble();
         ntPosition.set(pos);
         double target = turretMotor.getClosedLoopReference().getValueAsDouble();
-        ntError.set((pos - target) * 360.0);
+        lastAimErrorDegrees = (pos - target) * 360.0;
+        ntError.set(lastAimErrorDegrees);
         ntResetting.set(isResetting);
         ntAimOffset.set(aimOffsetRotations * 360.0);
+    }
+
+    /**
+     * Returns the current turret aim error in degrees.
+     * Positive = turret is CCW of target, Negative = CW of target.
+     * Used by AutoShootCommand for shot telemetry.
+     */
+    public double getAimErrorDegrees() {
+        return lastAimErrorDegrees;
     }
 }

@@ -67,17 +67,29 @@ public class ShooterSubsystem extends SubsystemBase {
   // These are lookup tables: you give them a distance, they give back a value.
   // Between known data points, they estimate (interpolate) the right value.
   // Example: if 2m → hood 0.25 and 4m → hood 0.55, then 3m → hood ~0.40
+  //
+  // HUB tables: calibrated for scoring into the hub (1–6.5m)
+  // PASSING tables: calibrated for lobbing across the field (5–13m)
+  //   Passing shots need more hood angle (higher arc) and more power.
+  //   Biased toward overshooting — better to overshoot than undershoot a pass.
   private final InterpolatingDoubleTreeMap hoodTable = new InterpolatingDoubleTreeMap();
   private final InterpolatingDoubleTreeMap shooterRPSTable = new InterpolatingDoubleTreeMap();
+  private final InterpolatingDoubleTreeMap passHoodTable = new InterpolatingDoubleTreeMap();
+  private final InterpolatingDoubleTreeMap passRPSTable = new InterpolatingDoubleTreeMap();
+
+  // ===== FLYWHEEL PRE-SPIN =====
+  // Idle speed to keep flywheels warm when not actively shooting.
+  // Cuts spin-up time from ~0.8s to ~0.2s when AutoShoot activates.
+  public static final double IDLE_PRESPIN_RPS = 18.0;
 
   // Tracks what speed we asked the flywheels to spin at (for ready-to-shoot check)
   private double targetRPS = 0.0;
 
   // ===== TRENCH SAFETY =====
-  // Robot X position supplier — set by RobotContainer so periodic() can
-  // force the hood flat when driving through a trench zone, even if no
-  // shooting command is active.
+  // Robot position suppliers — set by RobotContainer so periodic() can
+  // force the hood flat when driving through a trench zone on the trench side.
   private DoubleSupplier robotXSupplier = () -> 0.0;
+  private DoubleSupplier robotYSupplier = () -> 0.0;
 
   // ===== POWER OFFSET (adjusted by co-pilot controller 2) =====
   // This offset is added to every flywheel RPS command.
@@ -153,19 +165,57 @@ public class ShooterSubsystem extends SubsystemBase {
     // FORMAT: table.put(distanceInMeters, value)
 
     // Hood table: distance → servo position (0.0 = flat, 1.0 = max angle up)
-    hoodTable.put(1.3, 0.13);
+    // CALIBRATION LOG:
+    //   1.3m (52in): too close — hood goes flat, ball exits forward. Need dedicated close-range entry.
+    //   2.2m (87in): confirmed good (screenshot data)
+    //   3.35m (123in): made it but hood slightly too high — lowered from 0.336 to 0.31
+    //   3.71m (146in): diagonal shot, made it well — confirmed good
+    //   4.03m: screenshot data looks good
+    //   5.06m (199in): made 1/missed 1, hood too angled — lowered from 0.55 to 0.48
+    hoodTable.put(1.0, 0.15);   // Close range — give it some angle so ball arcs up
+    hoodTable.put(1.3, 0.15);   // Raised from 0.13 — flat hood can't score at this range
     hoodTable.put(2.1, 0.21);
-    hoodTable.put(3.0, 0.30);
-    hoodTable.put(3.8, 0.38);
-    hoodTable.put(4.7, 0.47);
+    hoodTable.put(3.0, 0.28);
+    hoodTable.put(3.35, 0.31);  // NEW — tested at 123in, slightly less hood than interp gave
+    hoodTable.put(3.8, 0.36);
+    hoodTable.put(4.7, 0.44);
+    hoodTable.put(5.1, 0.48);   // NEW — tested at 199in, was 0.55 (too much), lowered
+    hoodTable.put(5.5, 0.52);   // Adjusted down from 0.55 based on 5.1m result
+    hoodTable.put(6.5, 0.60);   // Adjusted down from 0.63 based on trend
 
     // Flywheel speed table: distance → speed in Rotations Per Second (RPS)
-    shooterRPSTable.put(1.3, 20.0);   // ~1134 RPM
-    shooterRPSTable.put(2.1, 27.5);   // ~1476 RPM
+    // CALIBRATION LOG:
+    //   1.3m: 20 RPS way too low at close range — raised to 25
+    //   5.06m: made 1/missed 1 at 42 RPS — keep as-is, hood was the problem
+    shooterRPSTable.put(1.0, 25.0);   // NEW — close range needs more power to arc up
+    shooterRPSTable.put(1.3, 25.0);   // Raised from 20.0 — was way too weak up close
+    shooterRPSTable.put(2.1, 27.5);
     shooterRPSTable.put(2.2, 28.5);
-    shooterRPSTable.put(3.0, 30.6);   // ~1680 RPM
-    shooterRPSTable.put(3.8, 34.4);   // ~1950 RPM
-    shooterRPSTable.put(4.7, 37.5);   // ~2220 RPM
+    shooterRPSTable.put(3.0, 30.6);
+    shooterRPSTable.put(3.35, 32.0);  // NEW — tested at 123in
+    shooterRPSTable.put(3.8, 34.4);
+    shooterRPSTable.put(4.7, 37.5);
+    shooterRPSTable.put(5.1, 42.0);   // NEW — tested at 199in, power seemed OK
+    shooterRPSTable.put(5.5, 44.0);   // Adjusted from 42.0
+    shooterRPSTable.put(6.5, 48.0);   // Adjusted from 47.0
+
+    // ===== PASSING SHOT CALIBRATION TABLES =====
+    // For lobbing balls across the field to teammates (5–13m range).
+    // Target: land 0.5–1m inside our alliance zone. Don't over-power.
+    //
+    // Hood: higher values = more arc.
+    passHoodTable.put(5.0, 0.55);    // NEEDS CALIBRATION
+    passHoodTable.put(7.0, 0.62);    // NEEDS CALIBRATION
+    passHoodTable.put(9.0, 0.68);    // NEEDS CALIBRATION
+    passHoodTable.put(11.0, 0.73);   // NEEDS CALIBRATION
+    passHoodTable.put(13.0, 0.78);   // NEEDS CALIBRATION
+
+    // RPS: pulled back from original values to avoid overshooting
+    passRPSTable.put(5.0, 38.0);     // NEEDS CALIBRATION (was 45)
+    passRPSTable.put(7.0, 42.0);     // NEEDS CALIBRATION (was 48)
+    passRPSTable.put(9.0, 46.0);     // NEEDS CALIBRATION (was 52)
+    passRPSTable.put(11.0, 49.0);    // NEEDS CALIBRATION (was 55)
+    passRPSTable.put(13.0, 52.0);    // NEEDS CALIBRATION (was 58)
 
     // Set up dashboard publishers for the Calibration tab
     NetworkTable calTable = NetworkTableInstance.getDefault().getTable("Shuffleboard/Calibration");
@@ -271,75 +321,116 @@ public class ShooterSubsystem extends SubsystemBase {
     this.robotXSupplier = supplier;
   }
 
+  public void setRobotYSupplier(DoubleSupplier supplier) {
+    this.robotYSupplier = supplier;
+  }
+
   /**
    * Are the flywheels spinning fast enough to shoot?
    * Returns true when both flywheels are within 5% of the target speed.
    * The AutoShootCommand checks this before feeding a note.
    */
   public boolean isReadyToShoot() {
-    // Read actual flywheel speeds from the motor encoders
     double leftVel = Math.abs(leftShooterMotor.getVelocity().getValueAsDouble());
     double rightVel = Math.abs(rightShooterMotor.getVelocity().getValueAsDouble());
 
     if (targetRPS > 0) {
-      // Closed-loop mode: check if within 5% of target
-      double tolerance = targetRPS * 0.05;
+      // Use the LARGER of 10% relative tolerance or 3 RPS absolute tolerance.
+      // The absolute floor prevents the ready check from flickering when the
+      // target RPS is changing rapidly (e.g., distance shifting while moving).
+      // At 30 RPS: max(3.0, 3.0) = 3 RPS window (27–33)
+      // At 40 RPS: max(4.0, 3.0) = 4 RPS window (36–44)
+      double tolerance = Math.max(targetRPS * 0.10, 3.0);
       return Math.abs(leftVel - targetRPS) < tolerance
           && Math.abs(rightVel - targetRPS) < tolerance;
     }
-    // Fallback: just check if spinning at all (at least 3 RPS)
     return leftVel > 3.0 && rightVel > 3.0;
   }
 
   // ==================== HOOD CONTROLS ====================
 
   /**
-   * Auto-aim: set hood angle and flywheel speed based on distance to the hub.
-   * Uses the interpolation tables defined in the constructor.
-   * @param distanceMeters Distance from the robot to the hub in meters
+   * Auto-aim: set hood angle and flywheel speed based on distance.
+   * Uses blended table + physics approach — see blendedHubAutoAim / blendedPassAutoAim.
+   * The standalone methods below are kept private for use by the blended methods.
    */
-  public void autoAim(double distanceMeters) {
-    double hoodPos = hoodTable.get(distanceMeters);      // Look up hood angle for this distance
-    double rps = shooterRPSTable.get(distanceMeters);     // Look up flywheel speed for this distance
-    hoodPos = MathUtil.clamp(hoodPos, HOOD_MIN, HOOD_MAX); // Cap hood at 0.0–1.0
-    rps = MathUtil.clamp(rps, 0.0, 60.0);                  // Cap flywheel speed at 60 RPS
-    setHoodPosition(hoodPos);
-    runFlywheelsRPS(rps);
+
+  /**
+   * Blended hub auto-aim: smoothly mixes table and physics based on weight.
+   * @param distanceMeters distance to target
+   * @param physicsWeight 0.0 = pure table, 1.0 = pure physics
+   */
+  public void blendedHubAutoAim(double distanceMeters, double physicsWeight) {
+    // Table values
+    double clampedDist = MathUtil.clamp(distanceMeters, 1.0, 6.5);
+    double tableHood = hoodTable.get(clampedDist);
+    double tableRPS = shooterRPSTable.get(clampedDist);
+
+    // Physics values
+    double heightDiff = Constants.FieldConstants.HUB_TARGET_HEIGHT_METERS
+                      - Constants.FieldConstants.TURRET_HEIGHT_METERS;
+    double aoa = TrajectoryCalculations.getHubAngleOfAttack(distanceMeters);
+    double[] solution = TrajectoryCalculations.solve(distanceMeters, heightDiff, aoa);
+
+    double physicsHood = tableHood;
+    double physicsRPS = tableRPS;
+    if (solution != null) {
+      physicsHood = TrajectoryCalculations.launchAngleToHoodPosition(solution[1]);
+      physicsRPS = TrajectoryCalculations.exitVelocityToRPS(solution[0]);
+    }
+
+    // Blend
+    double hood = (1.0 - physicsWeight) * tableHood + physicsWeight * physicsHood;
+    double rps = (1.0 - physicsWeight) * tableRPS + physicsWeight * physicsRPS;
+
+    // If blended hood is flatter than table, pull back toward table
+    if (hood > tableHood) {
+      hood = (hood + tableHood) / 2.0;
+    }
+
+    setHoodPosition(MathUtil.clamp(hood, HOOD_MIN, HOOD_MAX));
+    runFlywheelsRPS(MathUtil.clamp(rps, 0.0, 60.0));
   }
 
   /**
-   * Physics-based auto-aim for passing shots (lobbing to a teammate).
-   * Instead of interpolation tables (calibrated for hub shots), this uses
-   * real projectile physics to calculate the required hood angle and flywheel
-   * speed for a given distance.
-   *
-   * @param distanceMeters horizontal distance from robot to the passing target
+   * Blended passing auto-aim: smoothly mixes table and physics based on weight.
+   * @param distanceMeters distance to target
+   * @param physicsWeight 0.0 = pure table, 1.0 = pure physics
    */
-  public void passAutoAim(double distanceMeters) {
+  public void blendedPassAutoAim(double distanceMeters, double physicsWeight) {
+    // Table values
+    double clampedDist = MathUtil.clamp(distanceMeters, 5.0, 13.0);
+    double tableHood = passHoodTable.get(clampedDist);
+    double tableRPS = passRPSTable.get(clampedDist);
+
+    // Physics values
     double heightDiff = Constants.FieldConstants.PASSING_TARGET_HEIGHT_METERS
                       - Constants.FieldConstants.TURRET_HEIGHT_METERS;
     double aoa = TrajectoryCalculations.getPassingAngleOfAttack(distanceMeters);
     double[] solution = TrajectoryCalculations.solve(distanceMeters, heightDiff, aoa);
 
-    if (solution == null) {
-      // Physics can't solve it — fall back to interpolation tables
-      autoAim(distanceMeters);
-      return;
+    double physicsHood = tableHood;
+    double physicsRPS = tableRPS;
+    if (solution != null) {
+      physicsHood = TrajectoryCalculations.launchAngleToHoodPosition(solution[1]);
+      physicsRPS = TrajectoryCalculations.exitVelocityToRPS(solution[0]);
     }
 
-    double exitVelocity = solution[0]; // m/s
-    double launchAngle = solution[1];  // degrees
+    // Blend
+    double hood = (1.0 - physicsWeight) * tableHood + physicsWeight * physicsHood;
+    double rps = (1.0 - physicsWeight) * tableRPS + physicsWeight * physicsRPS;
 
-    double hoodPos = TrajectoryCalculations.launchAngleToHoodPosition(launchAngle);
-    double rps = TrajectoryCalculations.exitVelocityToRPS(exitVelocity);
-
-    hoodPos = MathUtil.clamp(hoodPos, HOOD_MIN, HOOD_MAX);
-    rps = MathUtil.clamp(rps, 0.0, 60.0);
-
-    setHoodPosition(hoodPos);
-    runFlywheelsRPS(rps);
+    setHoodPosition(MathUtil.clamp(hood, HOOD_MIN, HOOD_MAX));
+    runFlywheelsRPS(MathUtil.clamp(rps, 0.0, 60.0));
   }
 
+  /**
+   * Auto-aim for passing shots (lobbing to a teammate across the field).
+   * Uses dedicated passing interpolation tables with more hood angle and
+   * more power than hub shots. Biased toward overshooting.
+   *
+   * @param distanceMeters horizontal distance from robot to the passing target
+   */
   // Tracks the current hood position (servo doesn't have feedback, so we track it ourselves)
   private double currentHoodPosition = 0.0;
 
@@ -366,6 +457,11 @@ public class ShooterSubsystem extends SubsystemBase {
     return currentHoodPosition;
   }
 
+  /** Get the current target flywheel RPS (what we commanded, including offset) */
+  public double getTargetRPS() {
+    return targetRPS;
+  }
+
   /**
    * Called automatically every 20ms by the command scheduler.
    * Publishes current shooter data to the dashboard for monitoring.
@@ -375,9 +471,10 @@ public class ShooterSubsystem extends SubsystemBase {
   @Override
   public void periodic() {
     // ===== TRENCH SAFETY (runs every loop, 50Hz) =====
-    // Force hood flat when in a trench zone, regardless of what command is running.
-    // This protects against the hood being left up during driving-only segments.
-    if (Constants.FieldConstants.isInTrenchZone(robotXSupplier.getAsDouble())) {
+    // Force hood flat when in a trench zone AND on the trench side of the field.
+    // Does NOT trigger when going over the bump (middle of field).
+    if (Constants.FieldConstants.isInTrenchZone(robotXSupplier.getAsDouble())
+        && Constants.FieldConstants.isOnTrenchSide(robotYSupplier.getAsDouble())) {
       if (currentHoodPosition > Constants.FieldConstants.TRENCH_HOOD_THRESHOLD) {
         setHoodPosition(0.0);
       }

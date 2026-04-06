@@ -59,21 +59,10 @@ public class Constants {
     }
 
     /**
-     * Climber system CAN IDs and PWM ports.
-     * The climber has: two climb motors, an elevator motor, and two servos.
-     * NOTE: Not wired yet — these IDs are reserved for when we build it.
+     * Climber system — removed from robot for this competition.
+     * CAN IDs 41-50 are reserved if it comes back.
      */
-    public static final class ClimberConstants {
-        public static final int CLIMB_LEFT_MOTOR = 41;
-        public static final int CLIMB_RIGHT_MOTOR = 42;
-        public static final int ELEVATOR_MOTOR = 43;
-
-        // Servos use PWM ports (not CAN IDs)
-        // public static final int CLIMB_SERVO_LEFT = 1;
-        // public static final int CLIMB_SERVO_RIGHT = 2;
-        public static final int ELEVATOR_SERVO = 1;
-
-    }
+    // public static final class ClimberConstants { ... }
 
     /**
      * Field positions and zones used for auto-aiming.
@@ -117,16 +106,28 @@ public class Constants {
         //   Blue trench: tags 23/28 at X=4.588 (alliance side), tags 17/22 at X=4.663 (neutral side)
         //   Red trench:  tags 1/6 at X=11.878 (alliance side), tags 7/12 at X=11.953 (neutral side)
         // Clearance underneath: 22.25in (56.52cm) — hood MUST be flat to fit.
-        // TRENCH_BUFFER adds extra margin so the hood flattens before we reach it.
-        public static final double TRENCH_BUFFER = 0.55;  // extra margin on each side (meters)
-        // Blue trench X range: 4.588 to 4.663 (+ buffer on each side)
-        public static final double BLUE_TRENCH_MIN_X = 4.588 - TRENCH_BUFFER;  // ~4.088
-        public static final double BLUE_TRENCH_MAX_X = 4.663 + TRENCH_BUFFER;  // ~5.163
-        // Red trench X range: 11.878 to 11.953 (+ buffer on each side)
-        public static final double RED_TRENCH_MIN_X = 11.878 - TRENCH_BUFFER;  // ~11.378
-        public static final double RED_TRENCH_MAX_X = 11.953 + TRENCH_BUFFER;  // ~12.453
+        // Asymmetric buffer: large on NEUTRAL side (approach fast, need early hood-down)
+        // small on ALLIANCE side (want to shoot near the trench).
+        public static final double TRENCH_BUFFER_ALLIANCE = 0.55;
+        public static final double TRENCH_BUFFER_NEUTRAL = 1.0;
+        // Blue trench: alliance side = lower X, neutral side = higher X
+        public static final double BLUE_TRENCH_MIN_X = 4.588 - TRENCH_BUFFER_ALLIANCE;
+        public static final double BLUE_TRENCH_MAX_X = 4.663 + TRENCH_BUFFER_NEUTRAL;
+        // Red trench: alliance side = higher X, neutral side = lower X
+        public static final double RED_TRENCH_MIN_X = 11.878 - TRENCH_BUFFER_NEUTRAL;
+        public static final double RED_TRENCH_MAX_X = 11.953 + TRENCH_BUFFER_ALLIANCE;
 
-        /** Returns true if the given X position is within a trench zone (either alliance). */
+        // ===== TRENCH Y BOUNDARIES =====
+        // Trenches are on the outer 64 inches (1.626m) of each side of the field.
+        // The bump is in the middle. Only slow down when on the trench side.
+        public static final double TRENCH_Y_WIDTH = 1.626; // 64 inches from each wall
+        public static final double TRENCH_Y_LOW = TRENCH_Y_WIDTH;                    // Y < 1.626m = near low wall trench
+        public static final double TRENCH_Y_HIGH = FIELD_WIDTH_METERS - TRENCH_Y_WIDTH; // Y > 6.443m = near high wall trench
+
+        /** Returns true if the robot's Y position is on the trench side (not the bump side). */
+        public static boolean isOnTrenchSide(double robotY) {
+            return robotY < TRENCH_Y_LOW || robotY > TRENCH_Y_HIGH;
+        }
         public static boolean isInTrenchZone(double robotX) {
             return (robotX >= BLUE_TRENCH_MIN_X && robotX <= BLUE_TRENCH_MAX_X)
                 || (robotX >= RED_TRENCH_MIN_X && robotX <= RED_TRENCH_MAX_X);
@@ -162,24 +163,22 @@ public class Constants {
         // ===== TURRET AND TARGET HEIGHTS (for 3D trajectory physics) =====
         // Turret launch point height above the floor (measure from CAD or robot).
         // This is the Z coordinate where the ball leaves the shooter.
-        public static final double TURRET_HEIGHT_METERS = 0.5334;  // ~21 inches — measured from floor to ball exit point
+        public static final double TURRET_HEIGHT_METERS = 0.4699;  // 18.5 inches — measured from floor to ball exit point
         // Passing target landing height — ground level (ball should land on the floor)
         public static final double PASSING_TARGET_HEIGHT_METERS = 0.0;
-
-        // Set to true to use physics-based trajectory for passing shots.
-        // Set to false to fall back to the interpolation tables (safe for matches).
-        // This is the compile-time default — co-pilot Back button toggles at runtime.
-        public static final boolean USE_TRAJECTORY_PASSING_DEFAULT = false;
+        // Hub target height — the height the ball needs to reach to score.
+        // Hub opening is 6ft tall = 1.8288m
+        public static final double HUB_TARGET_HEIGHT_METERS = 1.8288;
 
         public static final Pose2d BLUE_PASS_LEFT  = new Pose2d(
-            BLUE_ZONE_END - 0.5, FIELD_WIDTH_METERS - PASSING_TARGET_Y_INSET, new Rotation2d());
+            BLUE_ZONE_END - 1.0, FIELD_WIDTH_METERS - PASSING_TARGET_Y_INSET, new Rotation2d());
         public static final Pose2d BLUE_PASS_RIGHT = new Pose2d(
-            BLUE_ZONE_END - 0.5, PASSING_TARGET_Y_INSET, new Rotation2d());
-        // Red passing targets (just inside red alliance zone)
+            BLUE_ZONE_END - 1.0, PASSING_TARGET_Y_INSET, new Rotation2d());
+        // Red passing targets (1.0m inside red alliance zone)
         public static final Pose2d RED_PASS_LEFT   = new Pose2d(
-            RED_ZONE_START + 0.5, FIELD_WIDTH_METERS - PASSING_TARGET_Y_INSET, new Rotation2d());
+            RED_ZONE_START + 1.0, FIELD_WIDTH_METERS - PASSING_TARGET_Y_INSET, new Rotation2d());
         public static final Pose2d RED_PASS_RIGHT  = new Pose2d(
-            RED_ZONE_START + 0.5, PASSING_TARGET_Y_INSET, new Rotation2d());
+            RED_ZONE_START + 1.0, PASSING_TARGET_Y_INSET, new Rotation2d());
 
     }
 }

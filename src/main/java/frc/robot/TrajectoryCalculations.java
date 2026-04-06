@@ -62,6 +62,28 @@ public class TrajectoryCalculations {
     }
 
     /**
+     * Get the angle of attack for a hub shot based on distance.
+     * The ball needs to arrive at a steep enough angle to clear the 6ft hub.
+     * Close range = very steep descent, far range = moderate descent.
+     *
+     * Range: -75° (close, ~1m) to -55° (far, ~7m)
+     * Steepened from original values — ball was falling short of 6ft clearance.
+     *
+     * @param distanceMeters horizontal distance to the hub
+     * @return angle of attack in degrees (negative = ball descending)
+     */
+    public static double getHubAngleOfAttack(double distanceMeters) {
+        double minDist = 1.0;
+        double maxDist = 7.0;
+        double steepAngle = -75.0;
+        double flatAngle = -55.0;
+
+        double clamped = Math.max(minDist, Math.min(maxDist, distanceMeters));
+        double fraction = (clamped - minDist) / (maxDist - minDist);
+        return steepAngle + fraction * (flatAngle - steepAngle);
+    }
+
+    /**
      * Get the angle of attack for a passing shot based on distance.
      * Closer = steeper descent, farther = flatter trajectory.
      *
@@ -86,26 +108,21 @@ public class TrajectoryCalculations {
     /**
      * Convert a required launch angle (degrees) to a hood servo position (0.0–1.0).
      *
-     * The hood mechanism is INVERTED: servo 0.0 = ball exits nearly straight up
-     * and increasing the servo tilts the exit slightly more forward (lower launch angle).
+     * The hood is INVERTED: servo 0.0 = steepest (most straight up),
+     * higher servo values = flatter (more forward, lower launch angle).
      *
-     * Measured from the robot:
-     *   Servo 0.0 → ball exits ~10–15° forward from straight up → ~77.5° above horizontal
-     *   Servo 1.0 → ball exits ~20–25° forward from straight up → ~67.5° above horizontal
-     *
-     * Total servo range: only ~10° of launch angle change.
-     *   hood_position = (77.5 - launch_angle) / 10.0
-     *
-     * If the trajectory solver requests an angle outside 67.5–77.5°, the result
-     * is clamped to 0.0–1.0 (the servo's physical limits).
+     * Adjusted based on calibration data:
+     *   Servo 0.0 → ~80° above horizontal (nearly straight up)
+     *   Servo 1.0 → ~60° above horizontal (angled forward)
+     *   Total range: ~20° of launch angle change
      *
      * @param launchAngleDeg desired launch angle in degrees above horizontal
      * @return hood servo position (0.0 to 1.0), clamped to valid range
      */
     public static double launchAngleToHoodPosition(double launchAngleDeg) {
-        double HOOD_MAX_ANGLE_DEG = 77.5;  // launch angle at servo 0.0 (steepest)
-        double HOOD_MIN_ANGLE_DEG = 67.5;  // launch angle at servo 1.0 (flattest)
-        double range = HOOD_MAX_ANGLE_DEG - HOOD_MIN_ANGLE_DEG; // 10°
+        double HOOD_MAX_ANGLE_DEG = 80.0;  // launch angle at servo 0.0 (steepest)
+        double HOOD_MIN_ANGLE_DEG = 60.0;  // launch angle at servo 1.0 (flattest)
+        double range = HOOD_MAX_ANGLE_DEG - HOOD_MIN_ANGLE_DEG; // 20°
         double position = (HOOD_MAX_ANGLE_DEG - launchAngleDeg) / range;
         return Math.max(0.0, Math.min(1.0, position));
     }
@@ -134,9 +151,11 @@ public class TrajectoryCalculations {
      * @return flywheel speed in motor RPS (what to command the TalonFX)
      */
     public static double exitVelocityToRPS(double exitVelocityMPS) {
-        // 3.75 motor RPS per m/s of ball exit velocity.
-        // Includes 24T:15T gear ratio (1.6:1) + ~52% transfer efficiency.
-        double MOTOR_RPS_PER_MPS = 3.75;
+        // 4.25 motor RPS per m/s of ball exit velocity.
+        // Bumped from 3.75 — physics shots were ~1.5ft short, indicating
+        // real transfer efficiency is lower than the original 52% estimate.
+        // Includes 24T:15T gear ratio (1.6:1) + ~46% transfer efficiency.
+        double MOTOR_RPS_PER_MPS = 4.25;
         return exitVelocityMPS * MOTOR_RPS_PER_MPS;
     }
 }
