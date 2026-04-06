@@ -48,6 +48,7 @@ public class AutoShootCommand extends Command {
     private static final int MIN_AIMED_LOOPS = 3;
 
     private final Supplier<Pose2d> targetSupplier;
+    private final Supplier<Boolean> hubActiveSupplier;
     private Pose2d targetPose = Constants.FieldConstants.BLUE_HUB_POSE;
 
     // Tracks which aiming method is currently active (for dashboard display)
@@ -69,11 +70,13 @@ public class AutoShootCommand extends Command {
     private int telemetryCounter = 0;
 
     public AutoShootCommand(TurretSubsystem turret, ShooterSubsystem shooter,
-                            CommandSwerveDrivetrain drivetrain, Supplier<Pose2d> targetSupplier) {
+                            CommandSwerveDrivetrain drivetrain, Supplier<Pose2d> targetSupplier,
+                            Supplier<Boolean> hubActiveSupplier) {
         this.turret = turret;
         this.shooter = shooter;
         this.drivetrain = drivetrain;
         this.targetSupplier = targetSupplier;
+        this.hubActiveSupplier = hubActiveSupplier;
         addRequirements(turret, shooter);
 
         // Publish shot telemetry under "Shot" table for easy Shuffleboard layout
@@ -149,12 +152,26 @@ public class AutoShootCommand extends Command {
         Translation2d compensatedTarget = turret.getCompensatedTarget(robotPose, targetPose, fieldSpeeds);
 
         // STEP 3: Set hood angle and flywheel speed based on distance
-        boolean inTrench = Constants.FieldConstants.isInTrenchZone(robotPose.getX());
+        boolean inTrench = Constants.FieldConstants.isInTrenchZone(robotPose.getX())
+                        && Constants.FieldConstants.isOnTrenchSide(robotPose.getY());
         // Detect if we're aiming at a passing target (not the hub).
         boolean isPassing = !targetPose.equals(Constants.FieldConstants.BLUE_HUB_POSE)
                          && !targetPose.equals(Constants.FieldConstants.RED_HUB_POSE);
 
+        // Check if our hub is active (or about to be).
+        // When hub is off and we're aiming at the hub (not passing), stop shooting
+        // to save power for driving/collecting. Passing is always allowed.
+        boolean hubActive = hubActiveSupplier.get();
+        boolean hubShotBlocked = !isPassing && !hubActive;
+
         if (inTrench) {
+            shooter.setHoodPosition(0.0);
+            shooter.stopFlywheels();
+            shotMethod = "TRENCH";
+        } else if (hubShotBlocked) {
+            shooter.stopFlywheels();
+            shotMethod = "HUB INACTIVE";
+        } else if (distance > 0.5) {
             shooter.setHoodPosition(0.0);
             shooter.stopFlywheels();
             shotMethod = "TRENCH";
@@ -212,7 +229,7 @@ public class AutoShootCommand extends Command {
         // by the time the turret shifts a degree or two.
         if (feeding) {
             // Already feeding — only stop for hard safety
-            if (resetImminent || inTrench) {
+            if (resetImminent || inTrench || hubShotBlocked) {
                 shooter.stopFeeder();
                 shooter.stopIndexer();
                 feeding = false;
@@ -224,7 +241,7 @@ public class AutoShootCommand extends Command {
             }
         } else {
             // Not yet feeding — require full ready check for first shot
-            if (stableAim && flywheelsReady && !resetImminent && !inTrench) {
+            if (stableAim && flywheelsReady && !resetImminent && !inTrench && !hubShotBlocked) {
                 if (readyTimestamp == 0.0) {
                     readyTimestamp = Timer.getFPGATimestamp();
                 }

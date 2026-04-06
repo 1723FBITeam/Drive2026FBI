@@ -179,6 +179,23 @@ public class RobotContainer {
         // Physics vs table blending is now automatic based on robot speed.
         // No toggle needed — stationary uses tables, moving blends in physics.
 
+        // ===== HUB ACTIVATION STATUS =====
+        // Tracks whether our alliance's hub is currently active based on FMS game data.
+        // Game message = single char ('R' or 'B') = alliance whose hub goes inactive FIRST.
+        // That alliance is ACTIVE in Shifts 2 and 4, INACTIVE in Shifts 1 and 3.
+        // The other alliance is the opposite.
+        // When no FMS is connected (practice/testing), hub is always treated as active.
+        //
+        // Shift timing (teleop match time counting down):
+        //   Shift 1: 2:15 → 1:45  (hub active for alliance that WON auto)
+        //   Shift 2: 1:45 → 1:20  (hub active for alliance that LOST auto)
+        //   Shift 3: 1:20 → 0:55  (hub active for alliance that WON auto)
+        //   Shift 4: 0:55 → 0:00  (hub active for alliance that LOST auto)
+        //
+        // PRE_ACTIVATE_SECONDS: start shooting this many seconds before the hub
+        // turns on — balls in flight still count due to the 3-second scoring delay.
+        private static final double PRE_ACTIVATE_SECONDS = 1.0;
+
     public RobotContainer() {
         // Wire up the robot X supplier for trench hood safety
         shooterSubsystem.setRobotXSupplier(() -> drivetrain.getState().Pose.getX());
@@ -192,7 +209,7 @@ public class RobotContainer {
         // AutoShoot — aims turret at hub, spins flywheels, feeds when ready.
         // Hub-only targeting for auto (driver controls pass targeting in teleop).
         NamedCommands.registerCommand("AutoShoot",
-                new AutoShootCommand(turretSubsystem, shooterSubsystem, drivetrain, this::getAllianceHub));
+                new AutoShootCommand(turretSubsystem, shooterSubsystem, drivetrain, this::getAllianceHub, this::isHubActive));
 
         // StopShooter — kills flywheels, feeder, indexer, and flattens hood.
         // Use when leaving alliance zone to collect — don't waste power spinning.
@@ -260,7 +277,7 @@ public class RobotContainer {
         // Press once: aims turret, spins flywheels, feeds when ready, and spins spindexer
         // Press again: stops everything
         controller.y()
-                .toggleOnTrue(new AutoShootCommand(turretSubsystem, shooterSubsystem, drivetrain, this::getSmartTarget)
+                .toggleOnTrue(new AutoShootCommand(turretSubsystem, shooterSubsystem, drivetrain, this::getSmartTarget, this::isHubActive)
                         .alongWith(
                             new StartEndCommand(
                                 () -> shooterSubsystem.runIndexer(0.5), // Start the spindexer at 50% speed
@@ -643,6 +660,7 @@ controller.rightTrigger()
                                 : "NOT SET");
 
                 SmartDashboard.putBoolean("Vision Enabled", visionEnabled);
+                SmartDashboard.putBoolean("Hub Active", isHubActive());
 
                 // Robot speed for at-rest vs moving diagnostics
                 ChassisSpeeds speeds = drivetrain.getState().Speeds;
@@ -667,6 +685,81 @@ controller.rightTrigger()
         /** Returns true if the co-pilot has vision enabled (right stick toggle). */
         public boolean isVisionEnabled() {
                 return visionEnabled;
+        }
+
+        /**
+         * Returns true if our alliance's hub is currently active (or about to be).
+         *
+         * When no FMS is connected (practice/testing), always returns true so
+         * shooting is never blocked during practice.
+         *
+         * During a real match, uses the game-specific message ('R' or 'B' = alliance
+         * whose hub goes inactive first) plus match time to determine the current shift.
+         * Returns true PRE_ACTIVATE_SECONDS before the hub actually turns on, since
+         * balls in flight still count due to the 3-second scoring delay.
+         */
+        public boolean isHubActive() {
+                String gameMsg = DriverStation.getGameSpecificMessage();
+                double matchTime = DriverStation.getMatchTime();
+
+                // No FMS connected (practice/testing) — always active
+                if (gameMsg == null || gameMsg.isEmpty() || matchTime < 0) {
+                        return true;
+                }
+
+                // During auto, hub is always active for both alliances
+                if (DriverStation.isAutonomous()) {
+                        return true;
+                }
+
+                // Determine if we are the "first inactive" alliance
+                var alliance = DriverStation.getAlliance();
+                if (!alliance.isPresent()) return true; // Safety fallback
+
+                boolean isRed = alliance.get() == Alliance.Red;
+                boolean weGoInactiveFirst = (isRed && gameMsg.equals("R"))
+                                         || (!isRed && gameMsg.equals("B"));
+
+                // Shift boundaries (match time counting down):
+                //   Shift 1: 135 → 105  (2:15 → 1:45)
+                //   Shift 2: 105 → 80   (1:45 → 1:20)
+                //   Shift 3: 80  → 55   (1:20 → 0:55)
+                //   Shift 4: 55  → 0    (0:55 → 0:00)
+                //
+                // "First inactive" alliance: ACTIVE in Shifts 2 and 4, INACTIVE in 1 and 3
+                // "Other" alliance:          ACTIVE in Shifts 1 and 3, INACTIVE in 2 and 4
+                int shift;
+                if (matchTime > 105) shift = 1;
+                else if (matchTime > 80) shift = 2;
+                else if (matchTime > 55) shift = 3;
+                else shift = 4;
+
+                boolean activeInShift;
+                if (weGoInactiveFirst) {
+                        // We scored more in auto — our hub is active in Shifts 2 and 4
+                        activeInShift = (shift == 2 || shift == 4);
+                } else {
+                        // We scored less in auto — our hub is active in Shifts 1 and 3
+                        activeInShift = (shift == 1 || shift == 3);
+                }
+
+                if (activeInShift) return true;
+
+                // Not active yet — but check if we're within PRE_ACTIVATE_SECONDS
+                // of the next activation boundary
+                double nextActivation;
+                if (weGoInactiveFirst) {
+                        // Next active shifts: 2 (starts at 105) and 4 (starts at 55)
+                        if (matchTime > 105) nextActivation = 105;
+                        else if (matchTime > 55 && matchTime <= 80) nextActivation = 55;
+                        else return false;
+                } else {
+                        // Next active shifts: 1 (starts at 135) and 3 (starts at 80)
+                        if (matchTime > 80 && matchTime <= 105) nextActivation = 80;
+                        else return false;
+                }
+
+                return matchTime <= nextActivation + PRE_ACTIVATE_SECONDS;
         }
 
         /**
