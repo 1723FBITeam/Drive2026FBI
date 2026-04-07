@@ -110,23 +110,21 @@ public class RobotContainer {
         // Telemetry — sends drivetrain data to the dashboard
         private final Telemetry logger = new Telemetry(MaxSpeed);
 
-        PathPlannerPath path;
-        {
-
-                try {
-                        path = PathPlannerPath.fromPathFile("Left Sweep");
-                } catch (Exception e) {
-                        e.printStackTrace();
-                        path = null;
-                }
+        // ===== PATHPLANNER AUTO LOADER FOR LEFT & RIGHT SWEEP =====
+        private Command loadPathfindCommand(String pathName) {
+        try {
+            PathPlannerPath path = PathPlannerPath.fromPathFile(pathName);
+            PathConstraints constraints = new PathConstraints(3.0, 3.0, 2 * Math.PI, 4 * Math.PI);
+            
+            return AutoBuilder.pathfindThenFollowPath(path, constraints);
+            
+        } catch (Exception e) {
+            // Print an error to the Driver Station so you know it failed
+            DriverStation.reportError("Could not load PathPlanner path: " + pathName, false);
+            
+            // Return a safe dummy command so the robot doesn't crash if the button is pressed
+            return Commands.print("Attempted to run missing path: " + pathName); 
         }
-
-        Command followPath = null;
-        {
-
-                if (path != null) {
-                        followPath = AutoBuilder.followPath(path);
-                }
         }
 
         // ===== SLEW RATE LIMITERS =====
@@ -262,11 +260,11 @@ public class RobotContainer {
         // Y = toggle auto-shoot on/off
         // X = toggle intake on/off
         // A = jostle intake (hold)
-        // B = (free)
-        // Right Trigger = manual feeder + indexer (hold)
-        // Left Trigger = speed boost to 100% (hold, default is 40%)
-        // Left Bumper = pathfind and follow path
-        // Right Bumper = (free)
+        // B = emergency stop pathfinding
+        // Right Trigger = speed boost to 100% (hold, default is 40%)
+        // Left Trigger = manual feeder + indexer (hold)
+        // Left Bumper = pathfind and follow Left Sweep
+        // Right Bumper = pathfind and follow Right Sweep
         // Back = reset field-centric heading
         // D-pad = snap-to-heading (face specific direction while driving)
         // Left Stick = drive (field-centric)
@@ -285,11 +283,11 @@ public class RobotContainer {
                             )
                         ));
 
-        // RIGHT TRIGGER — manual feeder + indexer (hold)
+        // LEFT TRIGGER — manual feeder + indexer (hold)
         // While held: runs feeder at 65% and indexer at 50%
         // Releases: stops both
-controller.rightTrigger()
-    .whileTrue(new StartEndCommand(
+        controller.leftTrigger()
+        .whileTrue(new StartEndCommand(
         () -> {
             shooterSubsystem.runFeeder(0.65);
             shooterSubsystem.runIndexer(0.50);
@@ -301,18 +299,21 @@ controller.rightTrigger()
         shooterSubsystem // Subsystem requirement
     ));
 
-        Command cmd = AutoBuilder.pathfindThenFollowPath(
-        path,
-        new PathConstraints(3.0, 3.0, 2 * Math.PI, 4 * Math.PI)
-        );
+        // LEFT BUMPER — pathfind and follow "Left Sweep"
+        controller.leftBumper().onTrue(loadPathfindCommand("Left Sweep"));
 
-        // LEFT BUMPER — pathfind and follow "Left Sweep" path
-        controller.leftBumper().onTrue(cmd);
+        // RIGHT BUMPER — pathfind and follow "Right Sweep"
+        controller.rightBumper().onTrue(loadPathfindCommand("Right Sweep"));
 
-        // LEFT TRIGGER — speed boost (hold)
+        //EMERGENCY STOP PATHFINDING: If the driver needs to take back control during a path, they can press the B button to cancel the current path and drive manually.
+        controller.b().onTrue(Commands.runOnce(() -> {
+        System.out.println("DRIVER TOOK OVER: Pathfinding Cancelled!");
+        }, drivetrain));
+
+        // RIGHT TRIGGER — speed boost (hold)
         // While held: sets speed multiplier to 1.0 (full speed)
         // Released: returns to 0.4 (40% speed — the default)
-        controller.leftTrigger()
+        controller.rightTrigger()
                 .whileTrue(new StartEndCommand(
                         () -> drivetrain.setSpeedMultiplier(1.0),
                         () -> drivetrain.setSpeedMultiplier(0.4)));
@@ -390,29 +391,46 @@ controller.rightTrigger()
         // request, so we use fixed angles from the driver's perspective:
         // Up (away) = 0°, Down (toward) = 180°, Left = 90°, Right = -90°
 
+        // Additional helper: a BooleanSupplier that returns true if the driver is trying
+        // to manually rotate with the right stick. This is used to interrupt the
+        // snap-to-heading command if the driver takes control of rotation.
+        // This checks if the driver is trying to manually rotate with the right stick.
+        // We use > 0.1 to account for minor stick drift (deadband).
+        java.util.function.BooleanSupplier driverTakesOverRotation = 
+            () -> Math.abs(controller.getRightX()) > 0.1;
+
+        // Up = face away from driver wall (0°)
         controller.povUp()
-                .whileTrue(drivetrain.applyRequest(() -> facingAngle
+                .onTrue(drivetrain.applyRequest(() -> facingAngle
                         .withVelocityX(xLimiter.calculate(joystickCurve(-controller.getLeftY()) * 0.75 * MaxSpeed))
                         .withVelocityY(yLimiter.calculate(joystickCurve(-controller.getLeftX()) * 0.75 * MaxSpeed))
-                        .withTargetDirection(getAllianceRotation(Rotation2d.kZero))));
+                        .withTargetDirection(getAllianceRotation(Rotation2d.kZero)))
+                // Keeps running UNTIL you touch the right joystick
+                .until(driverTakesOverRotation));
 
+        // Down = face toward driver wall (180°)
         controller.povDown()
-                .whileTrue(drivetrain.applyRequest(() -> facingAngle
+                .onTrue(drivetrain.applyRequest(() -> facingAngle
                         .withVelocityX(xLimiter.calculate(joystickCurve(-controller.getLeftY()) * 0.75 * MaxSpeed))
                         .withVelocityY(yLimiter.calculate(joystickCurve(-controller.getLeftX()) * 0.75 * MaxSpeed))
-                        .withTargetDirection(getAllianceRotation(Rotation2d.k180deg))));
+                        .withTargetDirection(getAllianceRotation(Rotation2d.k180deg)))
+                .until(driverTakesOverRotation));
 
+        // Left = face left (90°)
         controller.povLeft()
-                .whileTrue(drivetrain.applyRequest(() -> facingAngle
+                .onTrue(drivetrain.applyRequest(() -> facingAngle
                         .withVelocityX(xLimiter.calculate(joystickCurve(-controller.getLeftY()) * 0.75 * MaxSpeed))
                         .withVelocityY(yLimiter.calculate(joystickCurve(-controller.getLeftX()) * 0.75 * MaxSpeed))
-                        .withTargetDirection(getAllianceRotation(Rotation2d.kCCW_90deg))));
+                        .withTargetDirection(getAllianceRotation(Rotation2d.kCCW_90deg)))
+                .until(driverTakesOverRotation));
 
+        // Right = face right (-90°)
         controller.povRight()
-                .whileTrue(drivetrain.applyRequest(() -> facingAngle
+                .onTrue(drivetrain.applyRequest(() -> facingAngle
                         .withVelocityX(xLimiter.calculate(joystickCurve(-controller.getLeftY()) * 0.75 * MaxSpeed))
                         .withVelocityY(yLimiter.calculate(joystickCurve(-controller.getLeftX()) * 0.75 * MaxSpeed))
-                        .withTargetDirection(getAllianceRotation(Rotation2d.kCW_90deg))));
+                        .withTargetDirection(getAllianceRotation(Rotation2d.kCW_90deg)))
+                .until(driverTakesOverRotation));
 
         // ===================================================================
         // CO-PILOT CONTROLLER (USB port 1)
@@ -436,7 +454,7 @@ controller.rightTrigger()
 
         // Y — jostle intake
         copilot.y()
-                .onTrue(intakeSubsystem.jostleCommand());
+                .whileTrue(new RepeatCommand(intakeSubsystem.jostleCommand()));
 
         // X — (free)
 
