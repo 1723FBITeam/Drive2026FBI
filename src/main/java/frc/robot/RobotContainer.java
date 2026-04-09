@@ -185,15 +185,22 @@ public class RobotContainer {
         // The other alliance is the opposite.
         // When no FMS is connected (practice/testing), hub is always treated as active.
         //
-        // Shift timing (teleop match time counting down):
-        //   Shift 1: 2:15 → 1:45  (hub active for alliance that WON auto)
-        //   Shift 2: 1:45 → 1:20  (hub active for alliance that LOST auto)
-        //   Shift 3: 1:20 → 0:55  (hub active for alliance that WON auto)
-        //   Shift 4: 0:55 → 0:00  (hub active for alliance that LOST auto)
+        // Match timing (2026 REBUILT):
+        //   Auto: 0:20 countdown
+        //   Teleop: 2:20 countdown (140 seconds), includes transition
+        //     Transition: 2:20 → 2:10 (10s, hub always active)
+        //     Shift 1: 2:10 → 1:45  (matchTime 130 → 105, 25s)
+        //     Shift 2: 1:45 → 1:20  (matchTime 105 → 80, 25s)
+        //     Shift 3: 1:20 → 0:55  (matchTime 80 → 55, 25s)
+        //     Shift 4: 0:55 → 0:00  (matchTime 55 → 0, 55s)
+        //   Endgame: last 30 seconds (matchTime <= 30)
+        //
+        // "First inactive" alliance (won auto): ACTIVE in Shifts 2 and 4
+        // "Other" alliance (lost auto):         ACTIVE in Shifts 1 and 3
         //
         // PRE_ACTIVATE_SECONDS: start shooting this many seconds before the hub
         // turns on — balls in flight still count due to the 3-second scoring delay.
-        private static final double PRE_ACTIVATE_SECONDS = 1.0;
+        private static final double PRE_ACTIVATE_SECONDS = 3.0;
 
     public RobotContainer() {
         // Wire up the robot X supplier for trench hood safety
@@ -750,7 +757,17 @@ public class RobotContainer {
                         return true;
                 }
 
-                // Determine if we are the "first inactive" alliance
+                // Transition period (2:20 → 2:10, matchTime 140 → 130): always active
+                if (matchTime > 130) {
+                        return true;
+                }
+
+                // Endgame (last 30s): hub is always active for both alliances
+                if (matchTime <= 30) {
+                        return true;
+                }
+
+                // Determine if we are the "first inactive" alliance (won auto)
                 var alliance = DriverStation.getAlliance();
                 if (!alliance.isPresent()) return true; // Safety fallback
 
@@ -758,14 +775,14 @@ public class RobotContainer {
                 boolean weGoInactiveFirst = (isRed && gameMsg.equals("R"))
                                          || (!isRed && gameMsg.equals("B"));
 
-                // Shift boundaries (match time counting down):
-                //   Shift 1: 135 → 105  (2:15 → 1:45)
-                //   Shift 2: 105 → 80   (1:45 → 1:20)
-                //   Shift 3: 80  → 55   (1:20 → 0:55)
-                //   Shift 4: 55  → 0    (0:55 → 0:00)
+                // Shift boundaries (matchTime counting down):
+                //   Shift 1: 130 → 105  (2:10 → 1:45)
+                //   Shift 2: 105 →  80  (1:45 → 1:20)
+                //   Shift 3:  80 →  55  (1:20 → 0:55)
+                //   Shift 4:  55 →   0  (0:55 → 0:00, includes endgame)
                 //
-                // "First inactive" alliance: ACTIVE in Shifts 2 and 4, INACTIVE in 1 and 3
-                // "Other" alliance:          ACTIVE in Shifts 1 and 3, INACTIVE in 2 and 4
+                // "First inactive" (won auto): ACTIVE in Shifts 2 and 4
+                // "Other" (lost auto):         ACTIVE in Shifts 1 and 3
                 int shift;
                 if (matchTime > 105) shift = 1;
                 else if (matchTime > 80) shift = 2;
@@ -774,25 +791,23 @@ public class RobotContainer {
 
                 boolean activeInShift;
                 if (weGoInactiveFirst) {
-                        // We scored more in auto — our hub is active in Shifts 2 and 4
                         activeInShift = (shift == 2 || shift == 4);
                 } else {
-                        // We scored less in auto — our hub is active in Shifts 1 and 3
                         activeInShift = (shift == 1 || shift == 3);
                 }
 
                 if (activeInShift) return true;
 
                 // Not active yet — but check if we're within PRE_ACTIVATE_SECONDS
-                // of the next activation boundary
+                // of the next activation boundary (balls in flight still count)
                 double nextActivation;
                 if (weGoInactiveFirst) {
-                        // Next active shifts: 2 (starts at 105) and 4 (starts at 55)
+                        // Active in shifts 2 (starts at 105) and 4 (starts at 55)
                         if (matchTime > 105) nextActivation = 105;
                         else if (matchTime > 55 && matchTime <= 80) nextActivation = 55;
                         else return false;
                 } else {
-                        // Next active shifts: 1 (starts at 135) and 3 (starts at 80)
+                        // Active in shifts 1 (starts at 130) and 3 (starts at 80)
                         if (matchTime > 80 && matchTime <= 105) nextActivation = 80;
                         else return false;
                 }
