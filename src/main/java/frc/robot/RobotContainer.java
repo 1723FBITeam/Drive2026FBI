@@ -286,18 +286,18 @@ public class RobotContainer {
         // LEFT TRIGGER — manual feeder + indexer (hold)
         // While held: runs feeder at 65% and indexer at 50%
         // Releases: stops both
-        controller.leftTrigger()
-        .whileTrue(new StartEndCommand(
-        () -> {
-            shooterSubsystem.runFeeder(0.65);
-            shooterSubsystem.runIndexer(0.50);
-        }, // Start: Run feeder and indexer
-        () -> {
-            shooterSubsystem.stopFeeder();
-            shooterSubsystem.stopIndexer();
-        }, // End: Stop both
-        shooterSubsystem // Subsystem requirement
-    ));
+//         controller.leftTrigger()
+//         .whileTrue(new StartEndCommand(
+//         () -> {
+//             shooterSubsystem.runFeeder(0.65);
+//             shooterSubsystem.runIndexer(0.50);
+//         }, // Start: Run feeder and indexer
+//         () -> {
+//             shooterSubsystem.stopFeeder();
+//             shooterSubsystem.stopIndexer();
+//         }, // End: Stop both
+//         shooterSubsystem // Subsystem requirement
+//     ));
 
         // LEFT BUMPER — pathfind and follow "Left Sweep"
         controller.leftBumper().onTrue(loadPathfindCommand("Left Sweep"));
@@ -316,6 +316,14 @@ public class RobotContainer {
         controller.rightTrigger()
                 .whileTrue(new StartEndCommand(
                         () -> drivetrain.setSpeedMultiplier(1.0),
+                        () -> drivetrain.setSpeedMultiplier(0.4)));
+
+        // LEFT TRIGGER — speed reduction (hold)
+        // While held: sets speed multiplier to 0.2 (reduced speed)
+        // Released: returns to 0.4 (40% speed — the default)
+        controller.leftTrigger()
+                .whileTrue(new StartEndCommand(
+                        () -> drivetrain.setSpeedMultiplier(0.2),
                         () -> drivetrain.setSpeedMultiplier(0.4)));
 
         // X BUTTON — toggle intake on/off
@@ -566,7 +574,7 @@ public class RobotContainer {
                     // ✅ PASS TO INTAKE
                     intakeSubsystem.handleAutoRetract(currentRobotSpeeds);
                     // 🔽 APPLY LIMITERS + MULTIPLIER (UNCHANGED LOGIC)
-                    double mult = drivetrain.getSpeedMultiplier();
+                        double mult = drivetrain.getSpeedMultiplier();
 
                     return drive
                             .withVelocityX(

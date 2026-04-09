@@ -237,8 +237,8 @@ public class IntakeSubsystem extends SubsystemBase {
 
         // We check:
         // 1. Is the intake currently out and running?
-        // 2. Is the robot physically moving backward faster than 0.5 meters/sec?
-        if (this.isExtended && this.isRunning && vx < -1.0) {
+        // 2. Is the robot physically moving backward faster than 2.0 meters/sec?
+        if (this.isExtended && this.isRunning && vx < -2.0) {
             // Only trigger if the retract command isn't already running
             this.retractCommand().schedule();
         }
