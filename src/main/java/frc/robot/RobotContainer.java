@@ -336,7 +336,7 @@ public class RobotContainer {
                         new WaitCommand(0.3),
                         new InstantCommand(intakeSubsystem::stopDeploy, intakeSubsystem),
                         // This RunCommand keeps the rollers spinning until the button is toggled OFF
-                        new RunCommand(() -> intakeSubsystem.runIntake(0.5), intakeSubsystem))
+                        new RunCommand(() -> intakeSubsystem.runIntake(0.35), intakeSubsystem))
                         .finallyDo((interrupted) -> {
                             // --- COMMAND TO STOP (Retract & Stop) ---
                             // This only runs when the toggle is turned OFF (interrupting the RunCommand)

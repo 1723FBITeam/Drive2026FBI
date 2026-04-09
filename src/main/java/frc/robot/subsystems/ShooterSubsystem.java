@@ -466,6 +466,9 @@ public class ShooterSubsystem extends SubsystemBase {
   public void periodic() {
     // ===== TRENCH SAFETY (runs every loop, 50Hz) =====
     // Force hood flat when in a trench zone AND on the trench side of the field.
+    // Uses the narrow isInTrenchZone (asymmetric buffers) so we can still
+    // shoot near the trench on the alliance side when leaving our zone.
+    // AutoShootCommand handles the early hood-flatten for the wider approach zone.
     // Does NOT trigger when going over the bump (middle of field).
     if (Constants.FieldConstants.isInTrenchZone(robotXSupplier.getAsDouble())
         && Constants.FieldConstants.isOnTrenchSide(robotYSupplier.getAsDouble())) {

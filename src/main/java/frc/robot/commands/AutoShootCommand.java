@@ -175,6 +175,14 @@ public class AutoShootCommand extends Command {
         // STEP 3: Set hood angle and flywheel speed based on distance
         boolean inTrench = Constants.FieldConstants.isInTrenchZone(robotPose.getX())
                         && Constants.FieldConstants.isOnTrenchSide(robotPose.getY());
+        // Also check the wider "near trench" zone on the NEUTRAL side only.
+        // When approaching from neutral zone (fast), flatten hood early so the
+        // drivetrain speed limiter doesn't slam us to 20%.
+        // On the alliance side, we want to shoot as close to the trench as possible,
+        // so we only flatten when actually in the trench (inTrench above).
+        boolean nearTrenchFromNeutral = Constants.FieldConstants.isNearTrenchZone(robotPose.getX())
+                        && !Constants.FieldConstants.isInTrenchZone(robotPose.getX())
+                        && Constants.FieldConstants.isOnTrenchSide(robotPose.getY());
         // Detect if we're aiming at a passing target (not the hub).
         boolean isPassing = !targetPose.equals(Constants.FieldConstants.BLUE_HUB_POSE)
                          && !targetPose.equals(Constants.FieldConstants.RED_HUB_POSE);
@@ -186,9 +194,15 @@ public class AutoShootCommand extends Command {
         boolean hubShotBlocked = !isPassing && !hubActive;
 
         if (inTrench) {
+            // In the trench — hood flat, no shooting
             shooter.setHoodPosition(0.0);
             shooter.stopFlywheels();
             shotMethod = "TRENCH";
+        } else if (nearTrenchFromNeutral) {
+            // Approaching trench — flatten hood early so drivetrain doesn't slow down,
+            // but keep flywheels spinning so we're ready to shoot when we exit
+            shooter.setHoodPosition(0.0);
+            shotMethod = "NEAR TRENCH";
         } else if (hubShotBlocked) {
             shooter.stopFlywheels();
             shotMethod = "HUB INACTIVE";
@@ -234,7 +248,7 @@ public class AutoShootCommand extends Command {
         boolean stableAim = aimedLoopCount >= MIN_AIMED_LOOPS;
 
         // Always run indexer when flywheels are spinning and not in trench/reset
-        if (!resetImminent && !inTrench && shooter.getTargetRPS() > 0) {
+        if (!resetImminent && !inTrench && !nearTrenchFromNeutral && shooter.getTargetRPS() > 0) {
             shooter.runIndexer(0.5);
         } else if (!feeding) {
             shooter.stopIndexer();
@@ -255,7 +269,7 @@ public class AutoShootCommand extends Command {
         // by the time the turret shifts a degree or two.
         if (feeding) {
             // Already feeding — only stop for hard safety
-            if (resetImminent || inTrench || hubShotBlocked) {
+            if (resetImminent || inTrench || nearTrenchFromNeutral || hubShotBlocked) {
                 shooter.stopFeeder();
                 shooter.stopIndexer();
                 feeding = false;
@@ -267,7 +281,7 @@ public class AutoShootCommand extends Command {
             }
         } else {
             // Not yet feeding — require full ready check for first shot
-            if (stableAim && flywheelsReady && !resetImminent && !inTrench && !hubShotBlocked) {
+            if (stableAim && flywheelsReady && !resetImminent && !inTrench && !nearTrenchFromNeutral && !hubShotBlocked) {
                 if (readyTimestamp == 0.0) {
                     readyTimestamp = Timer.getFPGATimestamp();
                 }
