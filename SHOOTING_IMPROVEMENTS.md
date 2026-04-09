@@ -176,3 +176,37 @@ Per Limelight 4 docs, when using IMU mode 4 (internal IMU + external assist), th
 **Location:** `disabledPeriodic()`, `autonomousInit()`, `teleopInit()`
 
 Updated comments to accurately reflect LL4 IMU mode behavior per current docs. Clarified that the back camera uses mode 0 because it's in portrait orientation (LL4 internal IMU requires landscape mount).
+
+---
+
+## Remaining Next Steps — Now Implemented
+
+### 16. Angular Velocity Compensation for Turret Rotation
+
+**File:** `src/main/java/frc/robot/subsystems/TurretSubsystem.java`  
+**Location:** `getCompensatedTarget()`
+
+The velocity compensation now accounts for both translational velocity (robot driving) and tangential velocity from robot rotation. When the robot spins, the turret pivot traces a circle and picks up sideways velocity proportional to `omega × pivot_radius`. This tangential velocity is added to the translational velocity before computing the compensated aim point. At the turret's 0.153m offset from robot center, spinning at 180°/s adds ~0.48 m/s of tangential velocity — enough to shift the aim point by several degrees at typical shooting distances.
+
+### 17. Latency Compensation for Hood Servo
+
+**File:** `src/main/java/frc/robot/commands/AutoShootCommand.java`  
+**Location:** `execute()` method, new `hoodDistance` calculation
+
+The hood servo takes ~80ms to reach its commanded position. While moving, the distance to the target changes during that 80ms, so the hood arrives at the wrong angle. Now the code tracks the rate of distance change between loops and predicts where the distance will be 80ms from now. The hood and flywheel commands use this predicted distance (`hoodDistance`) instead of the current distance, so the servo arrives at the correct angle by the time the ball feeds. The prediction is clamped to ±20% of the current distance to prevent wild swings from noisy distance readings.
+
+### 18. Passing Shots Use 100% Physics
+
+**File:** `src/main/java/frc/robot/commands/AutoShootCommand.java`  
+**Location:** `execute()` method, STEP 3
+
+Since all 10 passing shot table entries are marked "NEEDS CALIBRATION", blending with uncalibrated table values was making passing shots less accurate. Passing shots now always use `physicsWeight = 1.0` (pure physics from `TrajectoryCalculations`). Hub shots still use the speed-based blend (tables at rest, physics while moving). Once the passing tables are calibrated on the field, this can be changed back to blended mode.
+
+### 19. Exit Velocity Telemetry for Conversion Factor Validation
+
+**File:** `src/main/java/frc/robot/commands/AutoShootCommand.java`  
+**Location:** Telemetry section in `execute()`
+
+Added two new dashboard values under the Calibration table:
+- `Shot Exit Vel (m/s)` — the physics model's predicted ball exit velocity for the current distance. Compare this to actual ball speed measured with a radar gun or high-speed video to validate the `MOTOR_RPS_PER_MPS` conversion factor in `TrajectoryCalculations.exitVelocityToRPS()`.
+- `Shot Hood Distance` — the latency-compensated distance being used for hood/flywheel commands. Compare to `Shot Distance` (raw distance) to see how much the latency prediction is shifting things.

@@ -11,6 +11,7 @@ import edu.wpi.first.networktables.StringPublisher;
 import edu.wpi.first.wpilibj.Timer;
 import edu.wpi.first.wpilibj2.command.Command;
 import frc.robot.Constants;
+import frc.robot.TrajectoryCalculations;
 import frc.robot.subsystems.CommandSwerveDrivetrain;
 import frc.robot.subsystems.ShooterSubsystem;
 import frc.robot.subsystems.TurretSubsystem;
@@ -54,6 +55,15 @@ public class AutoShootCommand extends Command {
     // Tracks which aiming method is currently active (for dashboard display)
     private String shotMethod = "IDLE";
 
+    // ===== LATENCY COMPENSATION =====
+    // The hood servo takes ~80ms to reach its commanded position.
+    // By predicting where the distance will be 80ms from now and commanding
+    // that hood position now, the servo arrives at the right angle by the
+    // time the ball feeds. We track the previous distance to estimate the
+    // rate of change.
+    private static final double HOOD_LATENCY_SECONDS = 0.08; // 80ms servo response
+    private double previousDistance = 0.0;
+
     // ===== SHOT TELEMETRY (for at-rest calibration testing) =====
     private final DoublePublisher ntShotDistance;
     private final DoublePublisher ntShotHood;
@@ -67,6 +77,8 @@ public class AutoShootCommand extends Command {
     private final DoublePublisher ntShotFeedDelay;
     private final StringPublisher ntShotMethod;
     private final DoublePublisher ntShotCompensationDeg;
+    private final DoublePublisher ntShotExitVelocity;  // Physics-predicted ball exit velocity (m/s)
+    private final DoublePublisher ntShotHoodDistance;   // Latency-compensated distance used for hood
     private int telemetryCounter = 0;
 
     public AutoShootCommand(TurretSubsystem turret, ShooterSubsystem shooter,
@@ -93,6 +105,8 @@ public class AutoShootCommand extends Command {
         ntShotFeedDelay  = shotTable.getDoubleTopic("Shot Feed Delay").publish();
         ntShotMethod     = shotTable.getStringTopic("Shot Method").publish();
         ntShotCompensationDeg = shotTable.getDoubleTopic("Shot Vel Comp Deg").publish();
+        ntShotExitVelocity = shotTable.getDoubleTopic("Shot Exit Vel (m/s)").publish();
+        ntShotHoodDistance = shotTable.getDoubleTopic("Shot Hood Distance").publish();
     }
 
     @Override
@@ -100,6 +114,7 @@ public class AutoShootCommand extends Command {
         feeding = false;
         readyTimestamp = 0.0;
         aimedLoopCount = 0;
+        previousDistance = 0.0;
         targetPose = targetSupplier.get();
     }
 
@@ -146,6 +161,14 @@ public class AutoShootCommand extends Command {
         // Clamp to prevent negative or wildly divergent values
         aimDistance = edu.wpi.first.math.MathUtil.clamp(aimDistance, distance * 0.7, distance * 1.3);
 
+        // Latency compensation: the hood servo takes ~80ms to move. Predict
+        // where the distance will be 80ms from now and use that for hood/flywheel
+        // commands so the servo arrives at the right angle by the time the ball feeds.
+        double distanceRate = (previousDistance > 0.1) ? (aimDistance - previousDistance) / 0.02 : 0.0;
+        double hoodDistance = aimDistance + distanceRate * HOOD_LATENCY_SECONDS;
+        hoodDistance = edu.wpi.first.math.MathUtil.clamp(hoodDistance, aimDistance * 0.8, aimDistance * 1.2);
+        previousDistance = aimDistance;
+
         // Full compensated target still used for turret aim (includes lateral shift)
         Translation2d compensatedTarget = turret.getCompensatedTarget(robotPose, targetPose, fieldSpeeds);
 
@@ -174,13 +197,17 @@ public class AutoShootCommand extends Command {
             // At rest: 100% table (proven, calibrated)
             // At full speed (2+ m/s): 100% physics (adapts to changing distance)
             // In between: smooth blend — no hard switching
+            //
+            // Exception: passing shots always use 100% physics because the
+            // passing tables haven't been calibrated yet. Physics-only is
+            // more accurate than blending with uncalibrated table values.
             double physicsWeight = edu.wpi.first.math.MathUtil.clamp(robotSpeed / 2.0, 0.0, 1.0);
 
             if (isPassing) {
-                shooter.blendedPassAutoAim(aimDistance, physicsWeight);
-                shotMethod = String.format("PASS: BLEND %.0f%%", physicsWeight * 100);
+                shooter.blendedPassAutoAim(hoodDistance, 1.0);
+                shotMethod = "PASS: PHYSICS";
             } else {
-                shooter.blendedHubAutoAim(aimDistance, physicsWeight);
+                shooter.blendedHubAutoAim(hoodDistance, physicsWeight);
                 shotMethod = String.format("HUB: BLEND %.0f%%", physicsWeight * 100);
             }
         } else {
@@ -282,6 +309,21 @@ public class AutoShootCommand extends Command {
                 compensated.getY() - robotPose.getTranslation().getY(),
                 compensated.getX() - robotPose.getTranslation().getX()));
             ntShotCompensationDeg.set(compAngle - rawAngle);
+
+            // Latency-compensated distance used for hood/flywheel commands
+            ntShotHoodDistance.set(hoodDistance);
+
+            // Physics-predicted exit velocity for this distance.
+            // Compare this to actual ball speed (radar gun or video) to
+            // validate the exitVelocityToRPS conversion factor.
+            double heightDiff = isPassing
+                ? Constants.FieldConstants.PASSING_TARGET_HEIGHT_METERS - Constants.FieldConstants.TURRET_HEIGHT_METERS
+                : Constants.FieldConstants.HUB_TARGET_HEIGHT_METERS - Constants.FieldConstants.TURRET_HEIGHT_METERS;
+            double aoa = isPassing
+                ? TrajectoryCalculations.getPassingAngleOfAttack(distance)
+                : TrajectoryCalculations.getHubAngleOfAttack(distance);
+            double[] solution = TrajectoryCalculations.solve(distance, heightDiff, aoa);
+            ntShotExitVelocity.set(solution != null ? solution[0] : 0.0);
 
             // Human-readable state for quick glance on dashboard
             String state;

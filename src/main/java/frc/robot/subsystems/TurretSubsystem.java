@@ -391,10 +391,15 @@ public class TurretSubsystem extends SubsystemBase {
     /**
      * Compute a velocity-compensated aim point using iterative refinement.
      *
-     * The ball inherits the robot's velocity when launched. To cancel that out,
-     * we shift the virtual target backwards by (robot velocity × time-of-flight).
+     * The ball inherits the robot's full velocity when launched — both the
+     * translational velocity (robot driving) and the tangential velocity from
+     * the robot's rotation (spinning adds sideways speed at the turret pivot).
      *
-     * When the robot is stationary (speed < 0.1 m/s), returns the original target.
+     * To cancel both out, we shift the virtual target backwards by the
+     * combined velocity vector × time-of-flight, then iterate to converge.
+     *
+     * When the robot is nearly stationary and not spinning, returns the
+     * original target unchanged.
      */
     public Translation2d getCompensatedTarget(Pose2d robotPose, Pose2d targetPose, ChassisSpeeds robotRelativeSpeeds) {
         Translation2d originalTarget = targetPose.getTranslation();
@@ -402,8 +407,19 @@ public class TurretSubsystem extends SubsystemBase {
         ChassisSpeeds fieldSpeeds = ChassisSpeeds.fromRobotRelativeSpeeds(
             robotRelativeSpeeds, robotPose.getRotation());
 
-        double speed = Math.hypot(fieldSpeeds.vxMetersPerSecond, fieldSpeeds.vyMetersPerSecond);
-        if (speed < 0.1) {
+        // Translational speed of the robot center
+        double transSpeed = Math.hypot(fieldSpeeds.vxMetersPerSecond, fieldSpeeds.vyMetersPerSecond);
+
+        // Tangential speed at the turret pivot from robot rotation.
+        // The turret pivot is offset from robot center, so when the robot spins,
+        // the pivot traces a circle and picks up sideways velocity.
+        // v_tangential = omega × radius, where radius = distance from robot center to turret pivot.
+        double pivotRadius = TURRET_OFFSET.getNorm(); // ~0.153m
+        double omegaRadPerSec = fieldSpeeds.omegaRadiansPerSecond;
+        double tangentialSpeed = Math.abs(omegaRadPerSec) * pivotRadius;
+
+        // Skip compensation if both translational and rotational motion are negligible
+        if (transSpeed < 0.1 && tangentialSpeed < 0.02) {
             return originalTarget;
         }
 
@@ -411,15 +427,25 @@ public class TurretSubsystem extends SubsystemBase {
         Translation2d turretFieldPos = robotPose.getTranslation()
             .plus(TURRET_OFFSET.rotateBy(robotPose.getRotation()));
 
-        Translation2d velocityVector = new Translation2d(
-            fieldSpeeds.vxMetersPerSecond, fieldSpeeds.vyMetersPerSecond);
+        // Tangential velocity direction at the turret pivot from rotation.
+        // For CCW rotation (positive omega), the tangential velocity is
+        // perpendicular to the offset vector, rotated 90° CCW.
+        Translation2d rotatedOffset = TURRET_OFFSET.rotateBy(robotPose.getRotation());
+        Translation2d tangentialVelocity = new Translation2d(
+            -rotatedOffset.getY() * omegaRadPerSec,
+             rotatedOffset.getX() * omegaRadPerSec);
+
+        // Combined velocity: translation + rotation-induced tangential
+        Translation2d totalVelocity = new Translation2d(
+            fieldSpeeds.vxMetersPerSecond + tangentialVelocity.getX(),
+            fieldSpeeds.vyMetersPerSecond + tangentialVelocity.getY());
 
         Translation2d compensated = originalTarget;
         for (int i = 0; i < COMPENSATION_ITERATIONS; i++) {
             double distance = turretFieldPos.getDistance(compensated);
             double shotSpeed = estimateShotSpeed(distance);
             double timeOfFlight = distance / shotSpeed;
-            compensated = originalTarget.minus(velocityVector.times(timeOfFlight));
+            compensated = originalTarget.minus(totalVelocity.times(timeOfFlight));
         }
         return compensated;
     }
