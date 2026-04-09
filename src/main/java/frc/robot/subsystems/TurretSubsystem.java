@@ -118,9 +118,9 @@ public class TurretSubsystem extends SubsystemBase {
     //   - If teeth still skip: lower acceleration and/or cruise velocity
     //   - If turret is too slow to track: raise cruise velocity first, then acceleration
     //   - Jerk controls how abruptly acceleration changes (S-curve smoothing)
-    private static final double MOTION_MAGIC_CRUISE_VELOCITY = 0.55;  // rps (198 deg/sec)
-    private static final double MOTION_MAGIC_ACCELERATION = 1.5;     // rps/s (reaches cruise in 0.37s)
-    private static final double MOTION_MAGIC_JERK = 15.0;            // rps/s/s (smooth S-curve)
+    private static final double MOTION_MAGIC_CRUISE_VELOCITY = 0.75;  // rps (270 deg/sec)
+    private static final double MOTION_MAGIC_ACCELERATION = 2.5;     // rps/s (reaches cruise in 0.30s)
+    private static final double MOTION_MAGIC_JERK = 20.0;            // rps/s/s (smooth S-curve)
 
     // MotionMagicVoltage = "go to this position using a smooth motion profile"
     // Normal aiming uses Slot 0 (full PID gains)
@@ -144,6 +144,13 @@ public class TurretSubsystem extends SubsystemBase {
     private int telemetryCounter = 0;
     private double lastAimErrorDegrees = 0.0;
 
+    // ===== VELOCITY FEEDFORWARD =====
+    // Track previous target to compute target velocity for feedforward.
+    // Inspired by 254 (2022) and 6328 (2026) — both feed turret velocity
+    // to the motor controller so it actively tracks rather than just chasing position.
+    private double previousTargetMechRot = 0.0;
+    private double previousTargetTimestamp = 0.0;
+
     public TurretSubsystem() {
         // PID + Feedforward gains for position control
         // KP: How aggressively to correct error (higher = faster, may oscillate)
@@ -162,11 +169,11 @@ public class TurretSubsystem extends SubsystemBase {
             .withStaticFeedforwardSign(StaticFeedforwardSignValue.UseClosedLoopSign);
 
         // Slot 1: Reset moves (360° wrap-around).
-        // Mechanics upgraded — running fast. +25% from last tuning pass.
+        // Faster than before — smooth but not sluggish.
         var slot1 = new Slot1Configs()
-            .withKP(31.0)
+            .withKP(40.0)
             .withKI(0.0)
-            .withKD(0.5)
+            .withKD(0.6)
             .withKS(0.5)
             .withKV(1.25)
             .withKA(0.10)
@@ -201,6 +208,14 @@ public class TurretSubsystem extends SubsystemBase {
         var motorOutput = new MotorOutputConfigs()
             .withDutyCycleNeutralDeadband(0.04);
         turretMotor.getConfigurator().apply(motorOutput);
+
+        // ===== CURRENT LIMITS =====
+        var turretCurrentLimits = new com.ctre.phoenix6.configs.CurrentLimitsConfigs()
+            .withSupplyCurrentLimit(20)
+            .withSupplyCurrentLimitEnable(true)
+            .withStatorCurrentLimit(40)
+            .withStatorCurrentLimitEnable(true);
+        turretMotor.getConfigurator().apply(turretCurrentLimits);
 
         // Zero encoder at startup (turret starts facing rear of robot)
         turretMotor.setPosition(0);
@@ -358,30 +373,36 @@ public class TurretSubsystem extends SubsystemBase {
     }
 
     /**
-     * Sends the turret to a target position, automatically detecting if this
-     * is a normal aim or a long reset move. If the move is larger than
-     * RESET_THRESHOLD_ROTATIONS, the turret moves slower and sets isResetting=true.
+     * Sends the turret to a target position with velocity feedforward.
+     * The feedforward voltage helps the turret actively track moving targets
+     * instead of always playing catch-up with position-only control.
+     *
+     * @param targetMechRot target position in mechanism rotations
+     * @param feedforwardVolts additional voltage to apply based on target velocity
      */
-    private void goToPosition(double targetMechRot) {
+    private void goToPosition(double targetMechRot, double feedforwardVolts) {
         double currentPos = turretMotor.getPosition().getValueAsDouble();
         double moveDistance = Math.abs(targetMechRot - currentPos);
 
         if (moveDistance > RESET_THRESHOLD_ROTATIONS) {
             // Big move — this is a reset (wrapping around).
-            // Use Slot 1 (gentle PID) so it approaches smoothly without overshoot.
+            // No feedforward during resets — just get there smoothly.
             isResetting = true;
             turretMotor.setControl(resetPositionRequest.withPosition(targetMechRot));
         } else {
             // Normal aim — check if a previous reset is done
             if (isResetting && moveDistance < RESET_DONE_TOLERANCE) {
-                isResetting = false; // Reset complete, switch to normal PID
+                isResetting = false;
             }
             if (isResetting) {
-                // Still resetting but getting close — stay on gentle PID
                 turretMotor.setControl(resetPositionRequest.withPosition(targetMechRot));
             } else {
-                // Normal closed-loop position control (Slot 0, full speed)
-                turretMotor.setControl(positionRequest.withPosition(targetMechRot));
+                // Normal closed-loop position control with velocity feedforward.
+                // The feedforward helps the motor "keep up" with a moving target
+                // instead of always lagging behind the Motion Magic profile.
+                turretMotor.setControl(positionRequest
+                    .withPosition(targetMechRot)
+                    .withFeedForward(feedforwardVolts));
             }
         }
 
@@ -473,6 +494,23 @@ public class TurretSubsystem extends SubsystemBase {
         double finalTarget = targetMechRot + aimOffsetRotations;
         double currentPos = turretMotor.getPosition().getValueAsDouble();
 
+        // ===== VELOCITY FEEDFORWARD =====
+        // Compute how fast the target is moving in mechanism rotations/sec.
+        // Multiply by KV to get a feedforward voltage that helps the turret
+        // actively track the moving target instead of always lagging behind.
+        double now = edu.wpi.first.wpilibj.Timer.getFPGATimestamp();
+        double dt = now - previousTargetTimestamp;
+        double feedforwardVolts = 0.0;
+        if (dt > 0.005 && dt < 0.1 && previousTargetTimestamp > 0) {
+            double targetVelocityRPS = (finalTarget - previousTargetMechRot) / dt;
+            // KV from Slot0 = 1.3 volts per mechanism rps
+            // Clamp to prevent huge spikes from target jumps (e.g., reset wraps)
+            targetVelocityRPS = MathUtil.clamp(targetVelocityRPS, -1.0, 1.0);
+            feedforwardVolts = targetVelocityRPS * 1.3;
+        }
+        previousTargetMechRot = finalTarget;
+        previousTargetTimestamp = now;
+
         // Speed-scaled deadband: full deadband when stationary (prevents hunting
         // from vision noise), shrinks to 20% when moving so the turret tracks
         // the continuously shifting compensated target without lag.
@@ -486,7 +524,7 @@ public class TurretSubsystem extends SubsystemBase {
         if (Math.abs(currentPos - finalTarget) < effectiveDeadband) {
             return;
         }
-        goToPosition(finalTarget);
+        goToPosition(finalTarget, feedforwardVolts);
     }
 
     /**
@@ -510,7 +548,7 @@ public class TurretSubsystem extends SubsystemBase {
         Pose2d compensatedPose = new Pose2d(compensated, targetPose.getRotation());
         double targetMechRot = calculateTargetMechanismRotations(robotPose, compensatedPose);
         double currentPos = turretMotor.getPosition().getValueAsDouble();
-        return Math.abs(currentPos - targetMechRot) < 0.004; // 0.004 rot = ~1.5 degrees
+        return Math.abs(currentPos - targetMechRot) < 0.007; // 0.007 rot = ~2.5 degrees
     }
 
     @Override

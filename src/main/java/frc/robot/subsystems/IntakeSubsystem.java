@@ -100,6 +100,15 @@ public class IntakeSubsystem extends SubsystemBase {
         intakeLeftActivator.setPosition(0);
         intakeRightActivator.setPosition(0);
 
+        // ===== CURRENT LIMITS =====
+        var rollerCurrentLimits = new com.ctre.phoenix6.configs.CurrentLimitsConfigs()
+            .withSupplyCurrentLimit(30)
+            .withSupplyCurrentLimitEnable(true)
+            .withStatorCurrentLimit(60)
+            .withStatorCurrentLimitEnable(true);
+        intakeLeftMotor.getConfigurator().apply(rollerCurrentLimits);
+        intakeRightMotor.getConfigurator().apply(rollerCurrentLimits);
+
         // Set up dashboard telemetry
         NetworkTable calTable = NetworkTableInstance.getDefault().getTable("Calibration");
         ntLeftPos = calTable.getDoubleTopic("Intake L Pos").publish();

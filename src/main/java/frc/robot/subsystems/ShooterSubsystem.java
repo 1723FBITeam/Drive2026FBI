@@ -151,6 +151,32 @@ public class ShooterSubsystem extends SubsystemBase {
     indexerConfigs.NeutralMode = NeutralModeValue.Coast;
     indexerMotor.getConfigurator().apply(indexerConfigs);
 
+    // ===== CURRENT LIMITS =====
+    // Prevent brownouts by capping how much current each motor can draw.
+    // Without these, a stall or high-load event can pull 100A+ per motor.
+    var flywheelCurrentLimits = new CurrentLimitsConfigs()
+        .withSupplyCurrentLimit(40)
+        .withSupplyCurrentLimitEnable(true)
+        .withStatorCurrentLimit(80)
+        .withStatorCurrentLimitEnable(true);
+    leftShooterMotor.getConfigurator().apply(flywheelCurrentLimits);
+    rightShooterMotor.getConfigurator().apply(flywheelCurrentLimits);
+
+    var feederCurrentLimits = new CurrentLimitsConfigs()
+        .withSupplyCurrentLimit(30)
+        .withSupplyCurrentLimitEnable(true)
+        .withStatorCurrentLimit(60)
+        .withStatorCurrentLimitEnable(true);
+    leftFeederMotor.getConfigurator().apply(feederCurrentLimits);
+    rightFeederMotor.getConfigurator().apply(feederCurrentLimits);
+
+    var indexerCurrentLimits = new CurrentLimitsConfigs()
+        .withSupplyCurrentLimit(30)
+        .withSupplyCurrentLimitEnable(true)
+        .withStatorCurrentLimit(60)
+        .withStatorCurrentLimitEnable(true);
+    indexerMotor.getConfigurator().apply(indexerCurrentLimits);
+
     // ===== SHOT CALIBRATION TABLES =====
     // These tables map distance (meters from hub) to hood position and flywheel speed.
     //
@@ -179,9 +205,11 @@ public class ShooterSubsystem extends SubsystemBase {
     hoodTable.put(3.35, 0.31);  // NEW — tested at 123in, slightly less hood than interp gave
     hoodTable.put(3.8, 0.36);
     hoodTable.put(4.7, 0.44);
-    hoodTable.put(5.1, 0.48);   // NEW — tested at 199in, was 0.55 (too much), lowered
-    hoodTable.put(5.5, 0.52);   // Adjusted down from 0.55 based on 5.1m result
-    hoodTable.put(6.5, 0.60);   // Adjusted down from 0.63 based on trend
+    hoodTable.put(5.1, 0.50);   // NEW — tested at 199in, was 0.55 (too much), lowered
+    hoodTable.put(5.5, 0.59);   // Adjusted down from 0.55 based on 5.1m result
+    hoodTable.put(6.5, 0.68);   // Adjusted down from 0.63 based on trend
+    hoodTable.put(7.5, 0.75);   // Extended — far shots need flatter hood
+    hoodTable.put(8.5, 0.85);   // Extended — NEEDS CALIBRATION
 
     // Flywheel speed table: distance → speed in Rotations Per Second (RPS)
     // CALIBRATION LOG:
@@ -198,6 +226,8 @@ public class ShooterSubsystem extends SubsystemBase {
     shooterRPSTable.put(5.1, 44.0);   // +2
     shooterRPSTable.put(5.5, 46.0);   // +2
     shooterRPSTable.put(6.5, 50.0);   // +2
+    shooterRPSTable.put(7.5, 54.0);   // Extended — NEEDS CALIBRATION
+    shooterRPSTable.put(8.5, 57.0);   // Extended — NEEDS CALIBRATION
 
     // ===== PASSING SHOT CALIBRATION TABLES =====
     // For lobbing balls across the field to teammates (5–13m range).
@@ -361,7 +391,7 @@ public class ShooterSubsystem extends SubsystemBase {
    */
   public void blendedHubAutoAim(double distanceMeters, double physicsWeight) {
     // Table values
-    double clampedDist = MathUtil.clamp(distanceMeters, 1.0, 6.5);
+    double clampedDist = MathUtil.clamp(distanceMeters, 1.0, 8.5);
     double tableHood = hoodTable.get(clampedDist);
     double tableRPS = shooterRPSTable.get(clampedDist);
 

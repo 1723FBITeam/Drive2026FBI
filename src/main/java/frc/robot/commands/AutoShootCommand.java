@@ -46,7 +46,7 @@ public class AutoShootCommand extends Command {
     // Consecutive loops the turret has been on-target (prevents firing on flickers)
     private int aimedLoopCount = 0;
     // Minimum consecutive aimed loops before allowing feed (3 loops = ~60ms)
-    private static final int MIN_AIMED_LOOPS = 3;
+    private static final int MIN_AIMED_LOOPS = 2;
 
     private final Supplier<Pose2d> targetSupplier;
     private final Supplier<Boolean> hubActiveSupplier;
