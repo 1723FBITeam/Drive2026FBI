@@ -18,6 +18,7 @@ import com.pathplanner.lib.path.PathPlannerPath;
 import edu.wpi.first.math.filter.SlewRateLimiter;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
+import edu.wpi.first.math.geometry.Translation2d;
 import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.networktables.DoublePublisher;
 import edu.wpi.first.networktables.NetworkTable;
@@ -236,12 +237,11 @@ public class RobotContainer {
         autoChooser = AutoBuilder.buildAutoChooser("Tests");
         SmartDashboard.putData("Auto Mode", autoChooser);
 
-        // Publish Field2d to the Calibration tab so it's with the other debug data.
-        // In Shuffleboard, drag "Calibration/Field" and set widget type to "Field2d".
-        NetworkTableInstance.getDefault().getTable("Shuffleboard/Calibration")
-                .getSubTable("Field")
-                .getEntry(".type").setString("Field2d");
-        SmartDashboard.putData("Calibration/Field", field2d);
+        // Publish Field2d to SmartDashboard. In Shuffleboard, find "Field" under
+        // SmartDashboard and drag it onto your layout — it auto-detects as a Field2d widget.
+        // This shows the robot's estimated position from odometry + vision fusion.
+        // It works without Limelight (odometry only) — vision just corrects drift.
+        SmartDashboard.putData("Field", field2d);
 
         // ===== CALIBRATION DASHBOARD =====
         // Plain NetworkTables — arrange these in Shuffleboard however you like
@@ -666,11 +666,23 @@ public class RobotContainer {
                 Pose2d pose = drivetrain.getState().Pose;
                 field2d.setRobotPose(pose);
 
+                // Show aim targets on the field map:
+                // "Target" = the fixed smart target (hub or pass zone)
+                // "Aim Point" = the velocity-compensated point the turret is
+                //   actually aiming at. When moving left, this shifts right of
+                //   the hub. When stationary, it sits on top of the target.
+                Pose2d target = getSmartTarget();
+                field2d.getObject("Target").setPose(target);
+
+                Translation2d compensated = turretSubsystem.getCompensatedTarget(
+                        pose, target, drivetrain.getState().Speeds);
+                field2d.getObject("Aim Point").setPose(
+                        new Pose2d(compensated, target.getRotation()));
+
                 telemetryCounter++;
                 if (telemetryCounter % 5 != 0)
                         return; // ~10Hz for the rest
 
-                Pose2d target = getSmartTarget();
                 double dist = pose.getTranslation().getDistance(target.getTranslation());
 
                 calRobotX.set(pose.getX());
