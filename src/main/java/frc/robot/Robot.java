@@ -270,8 +270,10 @@ public class Robot extends TimedRobot {
             .getAngularVelocityZWorld().getValueAsDouble();
 
         // Reject all vision if spinning too fast — MegaTag2 needs accurate heading
-        // and camera frames blur during fast rotation
-        boolean spinning = Math.abs(yawRateDps) > 120;
+        // and camera frames blur during fast rotation.
+        // 360°/s matches the official Limelight example. Top teams use 720°/s.
+        // 120°/s was too aggressive — it rejected vision during normal turning.
+        boolean spinning = Math.abs(yawRateDps) > 360;
 
         // Build a status string for the dashboard so you can see what's happening
         String status;
@@ -333,8 +335,8 @@ public class Robot extends TimedRobot {
         }
 
         // Reject single-tag estimates when the tag is far away.
-        // A single tag beyond 3m on a flexible mount is too noisy to trust.
-        if (estimate.tagCount == 1 && estimate.avgTagDist > 3.0) {
+        // A single tag beyond 4m on a flexible mount is too noisy to trust.
+        if (estimate.tagCount == 1 && estimate.avgTagDist > 4.0) {
             rejectedCount++;
             lastRejectReason = "single tag too far (" + String.format("%.1f", estimate.avgTagDist) + "m)";
             return;
@@ -349,61 +351,25 @@ public class Robot extends TimedRobot {
             return;
         }
 
-        // Jump rejection: if vision says we're more than 2m from where odometry
-        // thinks we are, it's almost certainly a bad read. On a well-calibrated
-        // swerve, odometry drifts 0.5-1.5m over a full match — a 2m jump is
-        // way outside that range. The high std devs on accepted measurements
-        // limit the impact of any borderline cases that slip through.
+        // Track pose jump for telemetry (but don't reject based on it).
+        // MegaTag2 is reliable enough that jump rejection does more harm than good —
+        // it causes most measurements to be rejected, and the few that slip through
+        // are random outliers that cause jerkiness. Trust the Kalman filter + std devs
+        // to handle noisy measurements gracefully.
         double distFromCurrent = m_robotContainer.drivetrain.getState().Pose
             .getTranslation().getDistance(estimate.pose.getTranslation());
         ntPoseJump.set(distFromCurrent);
 
-        if (distFromCurrent > 2.0) {
-            rejectedCount++;
-            lastRejectReason = "jump too big (" + String.format("%.2f", distFromCurrent) + "m)";
-            return;
-        }
-
-        // Scale trust based on tag count, distance, and robot speed.
-        //
-        // Trust vision more when the robot is slow/stationary (best time to
-        // correct drift) and less when driving fast (camera blur + latency).
-        double xyStdDev;
-        if (estimate.tagCount >= 2) {
-            // Multi-tag MegaTag2: the most reliable estimate we can get
-            if (estimate.avgTagDist < 3.0) {
-                xyStdDev = 0.3;  // Close multi-tag
-            } else if (estimate.avgTagDist < 5.0) {
-                xyStdDev = 0.7;  // Medium distance multi-tag
-            } else {
-                xyStdDev = 1.5;  // Far multi-tag
-            }
-        } else {
-            // Single tag: less reliable, especially far away
-            if (estimate.avgTagDist < 1.5) {
-                xyStdDev = 1.0;  // Very close single tag
-            } else if (estimate.avgTagDist < 2.5) {
-                xyStdDev = 2.5;  // Medium single tag
-            } else {
-                xyStdDev = 5.0;  // Far single tag (2.5-3m)
-            }
-        }
-
-        // Speed-based scaling: trust vision fully when slow, barely when fast.
-        // Quadratic curve so trust drops off faster at higher speeds.
-        //   0 m/s → 1.0x (full trust)
-        //   1 m/s → 2.0x
-        //   2 m/s → 5.0x
-        //   3 m/s → 10.0x (barely trusted)
-        double speedMultiplier = 1.0 + translationalSpeed * translationalSpeed;
-        xyStdDev *= speedMultiplier;
+        // Use a flat std dev of 0.7 for MegaTag2, matching the official Limelight
+        // example and Team 3255's approach. This trusts vision enough to correct
+        // drift but not so much that it yanks the pose around.
+        // Rotation std dev = 9999999 means we NEVER trust vision for heading.
+        double xyStdDev = 0.7;
 
         // Publish the std dev being used for the Vision dashboard
         ntVisionStdDev.set(xyStdDev);
 
         // Feed the measurement into the Kalman filter.
-        // Rotation std dev = 9999999 means we NEVER trust vision for heading.
-        // The Pigeon gyro is always the authority on rotation.
         m_robotContainer.drivetrain.setVisionMeasurementStdDevs(
             VecBuilder.fill(xyStdDev, xyStdDev, 9999999));
         m_robotContainer.drivetrain.addVisionMeasurement(
