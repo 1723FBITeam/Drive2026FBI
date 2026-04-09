@@ -343,18 +343,18 @@ public class TurretSubsystem extends SubsystemBase {
     /**
      * Estimate ball speed in flight based on distance to target.
      * Close shots exit faster (higher RPS, shorter distance = less drag time).
-     * Far shots are slower. This makes velocity compensation more accurate
-     * than a single fixed constant across all distances.
+     * Far shots are slower. Uses linear interpolation to avoid discontinuities
+     * that cause oscillating compensation when distance changes every loop.
      *
-     * Reduced from original values — on-the-move testing showed compensation
-     * was too weak (shots drifting ~2ft in the direction of travel at medium speed).
-     * Lower shot speed = longer estimated flight time = more compensation.
+     * @param distanceMeters distance from turret to target
+     * @return estimated ball speed in m/s
      */
-    private static double estimateShotSpeed(double distanceMeters) {
-        if (distanceMeters < 2.0) return 5.5;
-        if (distanceMeters < 3.0) return 4.5;
-        if (distanceMeters < 4.0) return 4.0;
-        return 3.5;
+    public static double estimateShotSpeed(double distanceMeters) {
+        if (distanceMeters <= 2.0) return 5.5;
+        if (distanceMeters >= 5.0) return 3.5;
+        // Linear interpolation: 5.5 m/s at 2m, 3.5 m/s at 5m
+        double t = (distanceMeters - 2.0) / 3.0;
+        return 5.5 - t * 2.0;
     }
 
     /**
@@ -431,6 +431,10 @@ public class TurretSubsystem extends SubsystemBase {
      * for the ball inheriting the robot's velocity. When the robot is stationary,
      * this just aims at the real target — no special case needed.
      *
+     * The aim deadband scales with robot speed: full deadband when stationary
+     * (prevents hunting from vision noise), reduced when moving so the turret
+     * tracks the continuously shifting compensated target without lag.
+     *
      * @param robotPose   current robot pose from odometry
      * @param targetPose  field target to aim at (hub, corner, etc.)
      * @param fieldSpeeds current chassis speeds (pass drivetrain.getState().Speeds)
@@ -443,13 +447,30 @@ public class TurretSubsystem extends SubsystemBase {
         double finalTarget = targetMechRot + aimOffsetRotations;
         double currentPos = turretMotor.getPosition().getValueAsDouble();
 
-        // Small deadband: if we're already within ~2° of target, don't update.
-        // This prevents constant micro-corrections from vision pose noise
-        // that make the turret "hunt" back and forth when the robot is stationary.
-        if (Math.abs(currentPos - finalTarget) < AIM_DEADBAND_ROTATIONS) {
+        // Speed-scaled deadband: full deadband when stationary (prevents hunting
+        // from vision noise), shrinks to 20% when moving so the turret tracks
+        // the continuously shifting compensated target without lag.
+        ChassisSpeeds fieldRelSpeeds = ChassisSpeeds.fromRobotRelativeSpeeds(
+            fieldSpeeds, robotPose.getRotation());
+        double robotSpeed = Math.hypot(
+            fieldRelSpeeds.vxMetersPerSecond, fieldRelSpeeds.vyMetersPerSecond);
+        double deadbandScale = MathUtil.clamp(1.0 - (robotSpeed / 1.5), 0.2, 1.0);
+        double effectiveDeadband = AIM_DEADBAND_ROTATIONS * deadbandScale;
+
+        if (Math.abs(currentPos - finalTarget) < effectiveDeadband) {
             return;
         }
         goToPosition(finalTarget);
+    }
+
+    /**
+     * Returns the turret pivot position on the field, accounting for the
+     * physical offset from robot center. Use this for consistent distance
+     * calculations across turret aiming and power computation.
+     */
+    public Translation2d getTurretFieldPosition(Pose2d robotPose) {
+        return robotPose.getTranslation()
+            .plus(TURRET_OFFSET.rotateBy(robotPose.getRotation()));
     }
 
     /**

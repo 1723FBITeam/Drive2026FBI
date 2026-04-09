@@ -119,33 +119,31 @@ public class AutoShootCommand extends Command {
         // STEP 1: Aim the turret with velocity compensation
         turret.aimAtPose(robotPose, targetPose, fieldSpeeds);
 
-        // STEP 2: Calculate distances.
-        // Real distance: used for target detection (hub vs passing) and telemetry.
-        //
-        // Power distance: only adjusts for the component of velocity that's
-        // toward or away from the target. Lateral movement (strafing) should
-        // only affect turret aim direction, NOT power — strafing doesn't change
-        // how far the ball needs to travel to reach the hub.
-        double distance = robotPose.getTranslation().getDistance(targetPose.getTranslation());
+        // STEP 2: Calculate distances using turret pivot position for consistency
+        // with the velocity compensation in TurretSubsystem.
+        Translation2d turretFieldPos = turret.getTurretFieldPosition(robotPose);
+        double distance = turretFieldPos.getDistance(targetPose.getTranslation());
 
-        // Get velocity component along the robot-to-target axis
-        ChassisSpeeds fieldRelSpeeds2 = ChassisSpeeds.fromRobotRelativeSpeeds(
-            fieldSpeeds, robotPose.getRotation());
-        Translation2d toTarget = targetPose.getTranslation().minus(robotPose.getTranslation());
+        // Get velocity component along the turret-to-target axis.
+        // Radial speed: positive = closing on target, negative = moving away.
+        // Only radial motion affects power — lateral strafing changes aim
+        // direction but not how far the ball needs to travel.
+        Translation2d toTarget = targetPose.getTranslation().minus(turretFieldPos);
         double distToTarget = toTarget.getNorm();
         double radialSpeed = 0.0;
         if (distToTarget > 0.1) {
-            // Dot product of velocity and unit vector toward target = closing speed
-            // Positive = moving toward target, Negative = moving away
             Translation2d unitToTarget = toTarget.div(distToTarget);
-            radialSpeed = fieldRelSpeeds2.vxMetersPerSecond * unitToTarget.getX()
-                        + fieldRelSpeeds2.vyMetersPerSecond * unitToTarget.getY();
+            radialSpeed = fieldRelSpeeds.vxMetersPerSecond * unitToTarget.getX()
+                        + fieldRelSpeeds.vyMetersPerSecond * unitToTarget.getY();
         }
-        // Estimate how much closer/farther we'll be when the ball arrives
-        double shotSpeed = (distance < 3.0) ? 5.5 : 4.0;
+
+        // Estimate how much closer/farther we'll be when the ball arrives.
+        // Uses the same estimateShotSpeed function as turret velocity compensation
+        // so both systems agree on flight time.
+        double shotSpeed = TurretSubsystem.estimateShotSpeed(distance);
         double approxFlightTime = distance / shotSpeed;
-        double aimDistance = distance - radialSpeed * approxFlightTime * 0.5;
-        // Don't let it go negative or wildly different from real distance
+        double aimDistance = distance - radialSpeed * approxFlightTime * 0.7;
+        // Clamp to prevent negative or wildly divergent values
         aimDistance = edu.wpi.first.math.MathUtil.clamp(aimDistance, distance * 0.7, distance * 1.3);
 
         // Full compensated target still used for turret aim (includes lateral shift)
@@ -172,10 +170,6 @@ public class AutoShootCommand extends Command {
             shooter.stopFlywheels();
             shotMethod = "HUB INACTIVE";
         } else if (distance > 0.5) {
-            shooter.setHoodPosition(0.0);
-            shooter.stopFlywheels();
-            shotMethod = "TRENCH";
-        } else if (distance > 0.5) {
             // Blend table and physics based on robot speed.
             // At rest: 100% table (proven, calibrated)
             // At full speed (2+ m/s): 100% physics (adapts to changing distance)
@@ -189,6 +183,11 @@ public class AutoShootCommand extends Command {
                 shooter.blendedHubAutoAim(aimDistance, physicsWeight);
                 shotMethod = String.format("HUB: BLEND %.0f%%", physicsWeight * 100);
             }
+        } else {
+            // Too close to shoot accurately (< 0.5m) — hold fire
+            shooter.setHoodPosition(0.0);
+            shooter.stopFlywheels();
+            shotMethod = "TOO CLOSE";
         }
 
         // STEP 4: Check if we're ready to fire

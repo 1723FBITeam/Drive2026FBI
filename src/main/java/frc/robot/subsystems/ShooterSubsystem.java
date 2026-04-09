@@ -327,20 +327,19 @@ public class ShooterSubsystem extends SubsystemBase {
 
   /**
    * Are the flywheels spinning fast enough to shoot?
-   * Returns true when both flywheels are within 5% of the target speed.
-   * The AutoShootCommand checks this before feeding a note.
+   * Returns true when both flywheels are within tolerance of the target speed.
+   * Uses 7% relative tolerance with a 2 RPS absolute floor to prevent
+   * false-ready signals when the target RPS is shifting rapidly while moving.
    */
   public boolean isReadyToShoot() {
     double leftVel = Math.abs(leftShooterMotor.getVelocity().getValueAsDouble());
     double rightVel = Math.abs(rightShooterMotor.getVelocity().getValueAsDouble());
 
     if (targetRPS > 0) {
-      // Use the LARGER of 10% relative tolerance or 3 RPS absolute tolerance.
-      // The absolute floor prevents the ready check from flickering when the
-      // target RPS is changing rapidly (e.g., distance shifting while moving).
-      // At 30 RPS: max(3.0, 3.0) = 3 RPS window (27–33)
-      // At 40 RPS: max(4.0, 3.0) = 4 RPS window (36–44)
-      double tolerance = Math.max(targetRPS * 0.10, 3.0);
+      // 7% relative tolerance with 2 RPS absolute floor.
+      // At 30 RPS: max(2.1, 2.0) = 2.1 RPS window (27.9–32.1)
+      // At 40 RPS: max(2.8, 2.0) = 2.8 RPS window (37.2–42.8)
+      double tolerance = Math.max(targetRPS * 0.07, 2.0);
       return Math.abs(leftVel - targetRPS) < tolerance
           && Math.abs(rightVel - targetRPS) < tolerance;
     }
@@ -382,11 +381,6 @@ public class ShooterSubsystem extends SubsystemBase {
     // Blend
     double hood = (1.0 - physicsWeight) * tableHood + physicsWeight * physicsHood;
     double rps = (1.0 - physicsWeight) * tableRPS + physicsWeight * physicsRPS;
-
-    // If blended hood is flatter than table, pull back toward table
-    if (hood > tableHood) {
-      hood = (hood + tableHood) / 2.0;
-    }
 
     setHoodPosition(MathUtil.clamp(hood, HOOD_MIN, HOOD_MAX));
     runFlywheelsRPS(MathUtil.clamp(rps, 0.0, 60.0));
