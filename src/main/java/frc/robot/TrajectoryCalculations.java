@@ -151,11 +151,11 @@ public class TrajectoryCalculations {
      * @return flywheel speed in motor RPS (what to command the TalonFX)
      */
     public static double exitVelocityToRPS(double exitVelocityMPS) {
-        // 4.25 motor RPS per m/s of ball exit velocity.
-        // Bumped from 3.75 — physics shots were ~1.5ft short, indicating
-        // real transfer efficiency is lower than the original 52% estimate.
-        // Includes 24T:15T gear ratio (1.6:1) + ~46% transfer efficiency.
-        double MOTOR_RPS_PER_MPS = 4.25;
+        // 4.5 motor RPS per m/s of ball exit velocity.
+        // Bumped from 4.25 — shots were consistently clipping the near lip
+        // or barely making it in, indicating ~5% more power is needed.
+        // Includes 24T:15T gear ratio (1.6:1) + ~44% transfer efficiency.
+        double MOTOR_RPS_PER_MPS = 4.5;
         return exitVelocityMPS * MOTOR_RPS_PER_MPS;
     }
 }

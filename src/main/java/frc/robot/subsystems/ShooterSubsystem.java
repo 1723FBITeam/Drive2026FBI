@@ -172,7 +172,7 @@ public class ShooterSubsystem extends SubsystemBase {
     //   3.71m (146in): diagonal shot, made it well — confirmed good
     //   4.03m: screenshot data looks good
     //   5.06m (199in): made 1/missed 1, hood too angled — lowered from 0.55 to 0.48
-    hoodTable.put(1.0, 0.15);   // Close range — give it some angle so ball arcs up
+    hoodTable.put(1.0, 0.10);   // Close range — give it some angle so ball arcs up
     hoodTable.put(1.3, 0.15);   // Raised from 0.13 — flat hood can't score at this range
     hoodTable.put(2.1, 0.21);
     hoodTable.put(3.0, 0.28);
@@ -187,17 +187,17 @@ public class ShooterSubsystem extends SubsystemBase {
     // CALIBRATION LOG:
     //   1.3m: 20 RPS way too low at close range — raised to 25
     //   5.06m: made 1/missed 1 at 42 RPS — keep as-is, hood was the problem
-    shooterRPSTable.put(1.0, 25.0);   // NEW — close range needs more power to arc up
-    shooterRPSTable.put(1.3, 25.0);   // Raised from 20.0 — was way too weak up close
-    shooterRPSTable.put(2.1, 27.5);
-    shooterRPSTable.put(2.2, 28.5);
-    shooterRPSTable.put(3.0, 30.6);
-    shooterRPSTable.put(3.35, 32.0);  // NEW — tested at 123in
-    shooterRPSTable.put(3.8, 34.4);
-    shooterRPSTable.put(4.7, 37.5);
-    shooterRPSTable.put(5.1, 42.0);   // NEW — tested at 199in, power seemed OK
-    shooterRPSTable.put(5.5, 44.0);   // Adjusted from 42.0
-    shooterRPSTable.put(6.5, 48.0);   // Adjusted from 47.0
+    shooterRPSTable.put(1.0, 27.0);   // +2 — close range needs more power to arc up
+    shooterRPSTable.put(1.3, 27.0);   // +2
+    shooterRPSTable.put(2.1, 29.5);   // +2
+    shooterRPSTable.put(2.2, 30.5);   // +2
+    shooterRPSTable.put(3.0, 32.6);   // +2
+    shooterRPSTable.put(3.35, 34.0);  // +2
+    shooterRPSTable.put(3.8, 36.4);   // +2
+    shooterRPSTable.put(4.7, 39.5);   // +2
+    shooterRPSTable.put(5.1, 44.0);   // +2
+    shooterRPSTable.put(5.5, 46.0);   // +2
+    shooterRPSTable.put(6.5, 50.0);   // +2
 
     // ===== PASSING SHOT CALIBRATION TABLES =====
     // For lobbing balls across the field to teammates (5–13m range).
@@ -218,7 +218,7 @@ public class ShooterSubsystem extends SubsystemBase {
     passRPSTable.put(13.0, 52.0);    // NEEDS CALIBRATION (was 58)
 
     // Set up dashboard publishers for the Calibration tab
-    NetworkTable calTable = NetworkTableInstance.getDefault().getTable("Shuffleboard/Calibration");
+    NetworkTable calTable = NetworkTableInstance.getDefault().getTable("Calibration");
     ntHoodPos   = calTable.getDoubleTopic("Hood Position").publish();
     ntLeftVel   = calTable.getDoubleTopic("Shooter L Vel (RPS)").publish();
     ntRightVel  = calTable.getDoubleTopic("Shooter R Vel (RPS)").publish();

@@ -101,7 +101,7 @@ public class IntakeSubsystem extends SubsystemBase {
         intakeRightActivator.setPosition(0);
 
         // Set up dashboard telemetry
-        NetworkTable calTable = NetworkTableInstance.getDefault().getTable("Shuffleboard/Calibration");
+        NetworkTable calTable = NetworkTableInstance.getDefault().getTable("Calibration");
         ntLeftPos = calTable.getDoubleTopic("Intake L Pos").publish();
         ntRightPos = calTable.getDoubleTopic("Intake R Pos").publish();
         ntAvgPos = calTable.getDoubleTopic("Intake Avg Pos").publish();
