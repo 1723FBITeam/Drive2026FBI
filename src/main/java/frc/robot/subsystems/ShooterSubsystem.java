@@ -209,16 +209,16 @@ public class ShooterSubsystem extends SubsystemBase {
     //   5.06m (199in): made 1/missed 1, hood too angled — lowered from 0.55 to 0.48
     hoodTable.put(1.0, 0.10);   // Close range — unchanged
     hoodTable.put(1.3, 0.15);   // Unchanged
-    hoodTable.put(2.1, 0.23);   // +0.02
-    hoodTable.put(3.0, 0.33);   // +0.03
-    hoodTable.put(3.35, 0.38);  // +0.04
-    hoodTable.put(3.8, 0.44);   // +0.04
-    hoodTable.put(4.7, 0.55);   // +0.05
-    hoodTable.put(5.1, 0.63);   // +0.05
-    hoodTable.put(5.5, 0.70);   // +0.04
-    hoodTable.put(6.5, 0.78);   // +0.02
-    hoodTable.put(7.5, 0.83);   // +0.01
-    hoodTable.put(8.5, 0.85);   // unchanged (near HOOD_MAX)
+    hoodTable.put(2.1, 0.23);   // Unchanged
+    hoodTable.put(3.0, 0.36);   // +0.03
+    hoodTable.put(3.35, 0.42);  // +0.04
+    hoodTable.put(3.8, 0.50);   // +0.06
+    hoodTable.put(4.7, 0.62);   // +0.07
+    hoodTable.put(5.1, 0.70);   // +0.07
+    hoodTable.put(5.5, 0.77);   // +0.07
+    hoodTable.put(6.5, 0.85);   // +0.07
+    hoodTable.put(7.5, 0.91);   // +0.08
+    hoodTable.put(8.5, 0.95);   // max
 
     // Flywheel speed table: distance → speed in Rotations Per Second (RPS)
     // CALIBRATION LOG:
@@ -437,13 +437,14 @@ public class ShooterSubsystem extends SubsystemBase {
       physicsRPS = TrajectoryCalculations.exitVelocityToRPS(solution[0]);
     }
 
-    // Blend
-    double hood = (1.0 - physicsWeight) * tableHood + physicsWeight * physicsHood;
-    double rps = (1.0 - physicsWeight) * tableRPS + physicsWeight * physicsRPS;
+    // Hood and RPS both use the table — it's calibrated for real-world performance.
+    // Physics trajectory calculations are not trusted (angle/velocity estimates
+    // don't match the real mechanism well enough).
+    double hood = tableHood;
+    double rps = tableRPS;
 
     // Speed-based hood bump: when moving, the ball tends to fall short because
     // of timing delays (servo latency, ball flight during robot motion).
-    // Add extra hood angle proportional to how much physics is in the blend.
     // At full speed (physicsWeight=1.0): +0.06 hood (~3° more angle)
     // At rest (physicsWeight=0.0): no change (table values are calibrated)
     hood += physicsWeight * 0.06;

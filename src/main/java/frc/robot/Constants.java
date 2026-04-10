@@ -43,7 +43,7 @@ public class Constants {
 
         // Hood servo travel limits (0.0 = flat, 1.0 = max angle up)
         public static final double HOOD_MIN = 0.0;
-        public static final double HOOD_MAX = 0.85;
+        public static final double HOOD_MAX = 0.95;
     }
 
     /**
