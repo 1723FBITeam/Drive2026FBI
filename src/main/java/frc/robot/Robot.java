@@ -141,10 +141,8 @@ public class Robot extends TimedRobot {
 
     @Override
     public void autonomousInit() {
-        // Re-enable vision for auto (in case it was disabled)
-        LimelightHelpers.setEnabled(true);
-
-        // Use mode 0 (external Pigeon heading only) for both cameras during auto.
+        // Disable vision during auto — pure odometry for reliable paths.
+        LimelightHelpers.setEnabled(false);
         // The LL4 internal IMU (mode 4) can produce bad poses if it wasn't
         // properly seeded during disabled. The Pigeon is reliable for 20 seconds.
         LimelightHelpers.SetIMUMode("limelight-front", 0);
