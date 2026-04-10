@@ -1,6 +1,7 @@
 package frc.robot.subsystems;
 
 import com.ctre.phoenix6.configs.MotorOutputConfigs;
+import com.ctre.phoenix6.configs.CurrentLimitsConfigs;
 import com.ctre.phoenix6.configs.TalonFXSConfiguration;
 import com.ctre.phoenix6.controls.PositionVoltage;
 import com.ctre.phoenix6.hardware.TalonFX;
@@ -101,7 +102,7 @@ public class IntakeSubsystem extends SubsystemBase {
         intakeRightActivator.setPosition(0);
 
         // ===== CURRENT LIMITS =====
-        var rollerCurrentLimits = new com.ctre.phoenix6.configs.CurrentLimitsConfigs()
+        var rollerCurrentLimits = new CurrentLimitsConfigs()
             .withSupplyCurrentLimit(30)
             .withSupplyCurrentLimitEnable(true)
             .withStatorCurrentLimit(60)
@@ -122,14 +123,11 @@ public class IntakeSubsystem extends SubsystemBase {
         fxsConfig.Commutation.MotorArrangement = MotorArrangementValue.Minion_JST;
         // Use COAST so gravity can settle the deploy when motors are stopped
         fxsConfig.MotorOutput.NeutralMode = NeutralModeValue.Coast;
-        intakeLeftActivator.getConfigurator().apply(fxsConfig);
-        intakeRightActivator.getConfigurator().apply(fxsConfig);
-
-        // 2. Add PID gains (Adjust these values! Start small, like P=2.0 or 5.0)
+        // PID gains for position hold
         fxsConfig.Slot0.kP = 10.0;
         fxsConfig.Slot0.kI = 0.0;
         fxsConfig.Slot0.kD = 0.1;
-
+        // Apply once with all settings
         intakeLeftActivator.getConfigurator().apply(fxsConfig);
         intakeRightActivator.getConfigurator().apply(fxsConfig);
     }
@@ -180,13 +178,24 @@ public class IntakeSubsystem extends SubsystemBase {
     // Only pulses the deploy mechanism in/out — rollers keep running
     // so the ball stays engaged. Safe to call repeatedly.
 
+    // ===== DEPLOY CONSTANTS =====
+    // Position threshold for jostle: the deploy encoder position where the intake
+    // has retracted enough to "jostle" a stuck ball. Measured from the fully-out
+    // position (0.0) — 0.069 rotations ≈ 25° of deploy arm travel inward.
+    private static final double JOSTLE_RETRACT_POSITION = 0.069;
+
+    // Maximum time (seconds) to run deploy motors before auto-stopping.
+    // Prevents motors from running forever if the mechanism jams.
+    private static final double DEPLOY_TIMEOUT_SECONDS = 0.8;
+
     public Command jostleCommand() {
         return new SequentialCommandGroup(
                 // 1. Move the intake in
                 new InstantCommand(() -> deployIn(), this),
 
-                // 2. Wait until the average position is 0.76 or higher
-                Commands.waitUntil(() -> getAverageDeployPosition() >= 0.069),
+                // 2. Wait until retracted enough or timeout (whichever comes first)
+                Commands.waitUntil(() -> getAverageDeployPosition() >= JOSTLE_RETRACT_POSITION)
+                    .withTimeout(DEPLOY_TIMEOUT_SECONDS),
 
                 // 3. Stop the motors and ensure they are in Coast mode so it falls
                 new InstantCommand(() -> stopDeploy(), this),
@@ -217,38 +226,34 @@ public class IntakeSubsystem extends SubsystemBase {
         return new SequentialCommandGroup(
                 new InstantCommand(this::stopIntake, this),
                 new InstantCommand(this::deployIn, this),
-                new WaitCommand(0.3), // Give it time to travel
+                new WaitCommand(DEPLOY_TIMEOUT_SECONDS),
                 new InstantCommand(this::stopDeploy, this)).withName("IntakeRetractCommand");
     }
 
     /**
-     * Checks robot velocity and auto-retracts if moving away from the intake.
+     * Checks robot velocity and auto-retracts if moving fast in any direction.
      * 
      * @param currentXVelocity Velocity in meters per second (from drivetrain state)
      */
     public void handleAutoRetract(double currentXVelocity) {
-        // If running, extended, and moving backward faster than 0.5 m/s
-        if (this.isRunning && this.isExtended && currentXVelocity < -0.5) {
-            // .schedule() starts the command if it isn't already running
+        // If running, extended, and moving faster than 0.5 m/s in any direction
+        if (this.isRunning && this.isExtended && Math.abs(currentXVelocity) > 0.5) {
             this.retractCommand().schedule();
         }
     }
 
     /**
      * Checks actual robot movement from Odometry and auto-retracts if necessary.
+     * Uses total translational speed (not just backward) so strafing and
+     * diagonal movement also trigger retraction.
      * 
      * @param speeds The current ChassisSpeeds from the Pose Estimator/Drivetrain
      *               state.
      */
     public void handleAutoRetract(ChassisSpeeds speeds) {
-        // vxMetersPerSecond is the "Forward/Backward" speed of the robot pose.
-        double vx = speeds.vxMetersPerSecond;
+        double totalSpeed = Math.hypot(speeds.vxMetersPerSecond, speeds.vyMetersPerSecond);
 
-        // We check:
-        // 1. Is the intake currently out and running?
-        // 2. Is the robot physically moving backward faster than 2.0 meters/sec?
-        if (this.isExtended && this.isRunning && vx < -2.0) {
-            // Only trigger if the retract command isn't already running
+        if (this.isExtended && this.isRunning && totalSpeed > 2.0) {
             this.retractCommand().schedule();
         }
     }
