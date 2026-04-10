@@ -138,9 +138,18 @@ public class IntakeSubsystem extends SubsystemBase {
      * @param speed Duty cycle from -1.0 to 1.0 (positive = intake, negative = spit
      *              out)
      */
-    public void runIntake(double speed) {
-        intakeLeftMotor.set(speed);
-        intakeRightMotor.set(speed);
+    private double activeSpeed = 0.60; // Default speed
+
+    public void toggleSpeed() {
+    activeSpeed = (activeSpeed == 0.60) ? 1.0 : 0.60;
+    }
+
+    public double getActiveSpeed() {
+    return activeSpeed;
+    }
+    public void runIntake(double activeSpeed) {
+        intakeLeftMotor.set(activeSpeed);
+        intakeRightMotor.set(activeSpeed);
         isRunning = true;
     }
 

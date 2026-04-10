@@ -268,7 +268,7 @@ public class RobotContainer {
         // Intake — deploy intake and run rollers to collect balls.
         NamedCommands.registerCommand("Intake", Commands.run(() -> {
             intakeSubsystem.deployOut();
-            intakeSubsystem.runIntake(0.50);
+            intakeSubsystem.runIntake(0.35);
         }, intakeSubsystem));
 
         // StopIntake — retract intake and stop rollers.
@@ -383,31 +383,32 @@ public class RobotContainer {
         // Press once: deploys intake out, starts rollers
         // Press again: retracts intake, stops rollers
         controller.x().toggleOnTrue(
-                // --- COMMAND TO START (Deploy & Spin) ---
                 new SequentialCommandGroup(
-                        new InstantCommand(() -> intakeActive = true),
-                        new InstantCommand(intakeSubsystem::deployOut, intakeSubsystem),
-                        new WaitCommand(0.5),
-                        new InstantCommand(intakeSubsystem::stopDeploy, intakeSubsystem),
-                        // This RunCommand keeps the rollers spinning until the button is toggled OFF
-                        new RunCommand(() -> intakeSubsystem.runIntake(0.60), intakeSubsystem))
-                        .finallyDo((interrupted) -> {
-                            intakeActive = false;
-                            // --- COMMAND TO STOP (Retract & Stop) ---
-                            // This only runs when the toggle is turned OFF (interrupting the RunCommand)
-                            new SequentialCommandGroup(
-        new InstantCommand(intakeSubsystem::stopIntake, intakeSubsystem),
-        new InstantCommand(intakeSubsystem::deployIn, intakeSubsystem),
-        new WaitCommand(0.5),
-        new InstantCommand(intakeSubsystem::stopDeploy, intakeSubsystem),
-        new WaitCommand(0.5),
-        // GRAB CURRENT AVG POSITION AND HOLD
-        new InstantCommand(() -> {
-            double currentAvg = intakeSubsystem.getAverageDeployPosition();
-            intakeSubsystem.holdPosition(currentAvg);
-            // Optionally force it to brake mode here if it was in coast
-        }, intakeSubsystem)).schedule();
-        }));
+                new InstantCommand(() -> intakeActive = true),
+                new InstantCommand(intakeSubsystem::deployOut, intakeSubsystem),
+                new WaitCommand(0.5),
+                new InstantCommand(intakeSubsystem::stopDeploy, intakeSubsystem),
+        // Added "new" here and ensured it is part of the sequence
+                new RunCommand(
+                () -> intakeSubsystem.runIntake(intakeSubsystem.getActiveSpeed()), 
+                intakeSubsystem
+                )
+        ).finallyDo((interrupted) -> {
+                intakeActive = false;
+                // --- COMMAND TO STOP (Retract & Stop) ---
+                new SequentialCommandGroup(
+                new InstantCommand(intakeSubsystem::stopIntake, intakeSubsystem),
+                new InstantCommand(intakeSubsystem::deployIn, intakeSubsystem),
+                new WaitCommand(0.5),
+                new InstantCommand(intakeSubsystem::stopDeploy, intakeSubsystem),
+                new WaitCommand(0.5),
+                new InstantCommand(() -> {
+                double currentAvg = intakeSubsystem.getAverageDeployPosition();
+                intakeSubsystem.holdPosition(currentAvg);
+                }, intakeSubsystem)
+        ).schedule(); // We schedule this because the original command is finishing/ending
+    })
+);
 
         // A BUTTON — jostle intake to unstick balls
         // While held: continuously repeat the jostle sequence (with a short gap) until
@@ -516,10 +517,35 @@ public class RobotContainer {
         // --- Face buttons ---
 
         // Y — jostle intake
-        copilot.y()
-                .whileTrue(new RepeatCommand(intakeSubsystem.jostleCommand()));
+        copilot.y().onTrue(new InstantCommand(intakeSubsystem::toggleSpeed));
 
         // X — (free)
+        copilot.x().toggleOnTrue(
+                // --- COMMAND TO START (Deploy & Spin) ---
+                new SequentialCommandGroup(
+                        new InstantCommand(() -> intakeActive = true),
+                        new InstantCommand(intakeSubsystem::deployOut, intakeSubsystem),
+                        new WaitCommand(0.5),
+                        new InstantCommand(intakeSubsystem::stopDeploy, intakeSubsystem),
+                        // This RunCommand keeps the rollers spinning until the button is toggled OFF
+                        new RunCommand(() -> intakeSubsystem.runIntake(1.0), intakeSubsystem))
+                        .finallyDo((interrupted) -> {
+                            intakeActive = false;
+                            // --- COMMAND TO STOP (Retract & Stop) ---
+                            // This only runs when the toggle is turned OFF (interrupting the RunCommand)
+                            new SequentialCommandGroup(
+        new InstantCommand(intakeSubsystem::stopIntake, intakeSubsystem),
+        new InstantCommand(intakeSubsystem::deployIn, intakeSubsystem),
+        new WaitCommand(0.3),
+        new InstantCommand(intakeSubsystem::stopDeploy, intakeSubsystem),
+        new WaitCommand(0.3),
+        // GRAB CURRENT AVG POSITION AND HOLD
+        new InstantCommand(() -> {
+            double currentAvg = intakeSubsystem.getAverageDeployPosition();
+            intakeSubsystem.holdPosition(currentAvg);
+            // Optionally force it to brake mode here if it was in coast
+        }, intakeSubsystem)).schedule();
+        }));
 
         // A — (free)
 
