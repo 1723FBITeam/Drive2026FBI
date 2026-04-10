@@ -363,7 +363,7 @@ public class RobotContainer {
         // Released: returns to 0.55 (default competition speed)
         controller.rightTrigger()
                 .whileTrue(new StartEndCommand(
-                        () -> drivetrain.setSpeedMultiplier(1.0),
+                        () -> drivetrain.setSpeedMultiplier(0.85),
                         () -> drivetrain.setSpeedMultiplier(0.55)));
 
         // LEFT TRIGGER — crawl mode (hold)
@@ -371,7 +371,7 @@ public class RobotContainer {
         // Released: returns to 0.55 (default competition speed)
         controller.leftTrigger()
                 .whileTrue(new StartEndCommand(
-                        () -> drivetrain.setSpeedMultiplier(0.15),
+                        () -> drivetrain.setSpeedMultiplier(0.2),
                         () -> drivetrain.setSpeedMultiplier(0.55)));
 
         // X BUTTON — toggle intake on/off
@@ -384,7 +384,7 @@ public class RobotContainer {
                         new WaitCommand(0.3),
                         new InstantCommand(intakeSubsystem::stopDeploy, intakeSubsystem),
                         // This RunCommand keeps the rollers spinning until the button is toggled OFF
-                        new RunCommand(() -> intakeSubsystem.runIntake(0.35), intakeSubsystem))
+                        new RunCommand(() -> intakeSubsystem.runIntake(0.55), intakeSubsystem))
                         .finallyDo((interrupted) -> {
                             // --- COMMAND TO STOP (Retract & Stop) ---
                             // This only runs when the toggle is turned OFF (interrupting the RunCommand)
