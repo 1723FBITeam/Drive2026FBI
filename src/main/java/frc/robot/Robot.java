@@ -141,11 +141,13 @@ public class Robot extends TimedRobot {
 
     @Override
     public void autonomousInit() {
-        // Front LL: Mode 4 = fuse internal IMU + external Pigeon assist.
-        // The LL4 internal IMU runs at 1kHz for smooth frame-by-frame tracking,
-        // while the Pigeon gently corrects any drift over time.
-        // Back LL: Mode 0 = external Pigeon heading only (portrait mount).
-        LimelightHelpers.SetIMUMode("limelight-front", 4);
+        // Re-enable vision for auto (in case it was disabled)
+        LimelightHelpers.setEnabled(true);
+
+        // Use mode 0 (external Pigeon heading only) for both cameras during auto.
+        // The LL4 internal IMU (mode 4) can produce bad poses if it wasn't
+        // properly seeded during disabled. The Pigeon is reliable for 20 seconds.
+        LimelightHelpers.SetIMUMode("limelight-front", 0);
         LimelightHelpers.SetIMUMode("limelight-back", 0);
 
         // Get the selected auto routine from the dashboard chooser
@@ -168,6 +170,9 @@ public class Robot extends TimedRobot {
         if (m_autonomousCommand != null) {
             CommandScheduler.getInstance().cancel(m_autonomousCommand);
         }
+        // Re-enable vision for teleop (was disabled during auto)
+        LimelightHelpers.setEnabled(true);
+
         // Front LL: Mode 4 = fuse internal IMU + external Pigeon assist
         // Back LL: Mode 0 = external Pigeon heading only (portrait mount)
         LimelightHelpers.SetIMUMode("limelight-front", 4);

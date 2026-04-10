@@ -268,7 +268,7 @@ public class RobotContainer {
         // Intake — deploy intake and run rollers to collect balls.
         NamedCommands.registerCommand("Intake", Commands.run(() -> {
             intakeSubsystem.deployOut();
-            intakeSubsystem.runIntake(0.35);
+            intakeSubsystem.runIntake(0.50);
         }, intakeSubsystem));
 
         // StopIntake — retract intake and stop rollers.
@@ -390,7 +390,7 @@ public class RobotContainer {
                         new WaitCommand(0.5),
                         new InstantCommand(intakeSubsystem::stopDeploy, intakeSubsystem),
                         // This RunCommand keeps the rollers spinning until the button is toggled OFF
-                        new RunCommand(() -> intakeSubsystem.runIntake(0.55), intakeSubsystem))
+                        new RunCommand(() -> intakeSubsystem.runIntake(0.60), intakeSubsystem))
                         .finallyDo((interrupted) -> {
                             intakeActive = false;
                             // --- COMMAND TO STOP (Retract & Stop) ---
