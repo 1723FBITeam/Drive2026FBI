@@ -381,7 +381,7 @@ public class RobotContainer {
                 // --- COMMAND TO START (Deploy & Spin) ---
                 new SequentialCommandGroup(
                         new InstantCommand(intakeSubsystem::deployOut, intakeSubsystem),
-                        new WaitCommand(0.3),
+                        new WaitCommand(0.5),
                         new InstantCommand(intakeSubsystem::stopDeploy, intakeSubsystem),
                         // This RunCommand keeps the rollers spinning until the button is toggled OFF
                         new RunCommand(() -> intakeSubsystem.runIntake(0.55), intakeSubsystem))
@@ -391,7 +391,7 @@ public class RobotContainer {
                             new SequentialCommandGroup(
         new InstantCommand(intakeSubsystem::stopIntake, intakeSubsystem),
         new InstantCommand(intakeSubsystem::deployIn, intakeSubsystem),
-        new WaitCommand(0.3),
+        new WaitCommand(0.5),
         new InstantCommand(intakeSubsystem::stopDeploy, intakeSubsystem),
         new WaitCommand(0.5),
         // GRAB CURRENT AVG POSITION AND HOLD
