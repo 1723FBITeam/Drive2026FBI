@@ -8,6 +8,9 @@ import static edu.wpi.first.units.Units.MetersPerSecond;
 import static edu.wpi.first.units.Units.RadiansPerSecond;
 import static edu.wpi.first.units.Units.RotationsPerSecond;
 
+import java.util.Set;
+import java.util.Optional;
+
 import com.ctre.phoenix6.swerve.SwerveModule.DriveRequestType;
 import com.ctre.phoenix6.swerve.SwerveRequest;
 import com.pathplanner.lib.auto.AutoBuilder;
@@ -23,28 +26,27 @@ import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.networktables.DoublePublisher;
 import edu.wpi.first.networktables.NetworkTable;
 import edu.wpi.first.networktables.NetworkTableInstance;
-import edu.wpi.first.networktables.StringPublisher;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.DriverStation.Alliance;
+import edu.wpi.first.wpilibj.smartdashboard.Field2d;
 import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
-import edu.wpi.first.wpilibj.smartdashboard.Field2d;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
 import edu.wpi.first.wpilibj2.command.InstantCommand;
+import edu.wpi.first.wpilibj2.command.RepeatCommand;
 import edu.wpi.first.wpilibj2.command.RunCommand;
 import edu.wpi.first.wpilibj2.command.SequentialCommandGroup;
 import edu.wpi.first.wpilibj2.command.StartEndCommand;
 import edu.wpi.first.wpilibj2.command.WaitCommand;
-import edu.wpi.first.wpilibj2.command.RepeatCommand;
 import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
 import edu.wpi.first.wpilibj2.command.button.RobotModeTriggers;
+import frc.robot.commands.AutoShootCommand;
 import frc.robot.generated.TunerConstants;
 import frc.robot.subsystems.CommandSwerveDrivetrain;
 import frc.robot.subsystems.IntakeSubsystem;
 import frc.robot.subsystems.ShooterSubsystem;
 import frc.robot.subsystems.TurretSubsystem;
-import frc.robot.commands.AutoShootCommand;
 
 /**
  * RobotContainer — THIS IS THE MOST IMPORTANT FILE.
@@ -125,6 +127,39 @@ public class RobotContainer {
             
             // Return a safe dummy command so the robot doesn't crash if the button is pressed
             return Commands.print("Attempted to run missing path: " + pathName); 
+        }
+        }
+
+        // ===== PATHPLANNER AUTO LOADER FOR TOWER SWEEP =====
+        // Finds which path is closest and toggles to the closest one
+        private Command loadPathfindCommand(String pathNameL, String pathNameR) {
+        try {
+        PathPlannerPath pathL = PathPlannerPath.fromPathFile(pathNameL);
+        PathPlannerPath pathR = PathPlannerPath.fromPathFile(pathNameR);
+        PathConstraints constraints = new PathConstraints(3.0, 3.0, 2 * Math.PI, 4 * Math.PI);
+
+        return Commands.defer(() -> {
+        Pose2d robotPose = drivetrain.getState().Pose;
+        // getStartingHolonomicPose() returns Optional<Pose2d>
+        Optional<Pose2d> startL = pathL.getStartingHolonomicPose();
+        Optional<Pose2d> startR = pathR.getStartingHolonomicPose();
+
+        // If either path has no starting pose, just default to L
+        if (startL.isEmpty() || startR.isEmpty()) {
+        return AutoBuilder.pathfindThenFollowPath(pathL, constraints);
+        }
+
+        double distL = robotPose.getTranslation().getDistance(startL.get().getTranslation());
+        double distR = robotPose.getTranslation().getDistance(startR.get().getTranslation());
+
+        PathPlannerPath chosenPath = distL <= distR ? pathL : pathR;
+
+        return AutoBuilder.pathfindThenFollowPath(chosenPath, constraints);
+        }, Set.of(drivetrain));
+
+        } catch (Exception e) {
+        DriverStation.reportError("Could not load PathPlanner paths: " + pathNameL + " / " + pathNameR, false);
+        return Commands.print("Attempted to run missing paths: " + pathNameL + " / " + pathNameR);
         }
         }
 
@@ -312,6 +347,8 @@ public class RobotContainer {
         // RIGHT BUMPER — pathfind and follow "Right Sweep"
         controller.rightBumper().onTrue(loadPathfindCommand("Right Sweep"));
 
+        controller.a().onTrue(loadPathfindCommand("Tower Sweep L" , "Tower Sweep R"));
+
         //EMERGENCY STOP PATHFINDING: If the driver needs to take back control during a path, they can press the B button to cancel the current path and drive manually.
         controller.b().onTrue(Commands.runOnce(() -> {
         System.out.println("DRIVER TOOK OVER: Pathfinding Cancelled!");
@@ -322,7 +359,7 @@ public class RobotContainer {
         // Released: returns to 0.4 (40% speed — the default)
         controller.rightTrigger()
                 .whileTrue(new StartEndCommand(
-                        () -> drivetrain.setSpeedMultiplier(1.0),
+                        () -> drivetrain.setSpeedMultiplier(0.75),
                         () -> drivetrain.setSpeedMultiplier(0.4)));
 
         // LEFT TRIGGER — speed reduction (hold)
@@ -364,8 +401,8 @@ public class RobotContainer {
         // A BUTTON — jostle intake to unstick balls
         // While held: continuously repeat the jostle sequence (with a short gap) until
         // released.
-        controller.a()
-                .whileTrue(new RepeatCommand(intakeSubsystem.jostleCommand()));
+        // controller.a()
+        //         .whileTrue(new RepeatCommand(intakeSubsystem.jostleCommand()));
 
         // B BUTTON — (free)
 

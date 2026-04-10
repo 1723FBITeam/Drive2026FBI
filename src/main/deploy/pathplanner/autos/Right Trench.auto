@@ -11,7 +11,7 @@
               {
                 "type": "wait",
                 "data": {
-                  "waitTime": 3.5
+                  "waitTime": 3.0
                 }
               },
               {
@@ -32,17 +32,17 @@
         {
           "type": "path",
           "data": {
-            "pathName": "Left depot path"
+            "pathName": "Right Trench1"
           }
         },
         {
-          "type": "parallel",
+          "type": "deadline",
           "data": {
             "commands": [
               {
-                "type": "named",
+                "type": "wait",
                 "data": {
-                  "name": "Intake"
+                  "waitTime": 3.0
                 }
               },
               {
@@ -52,6 +52,24 @@
                 }
               }
             ]
+          }
+        },
+        {
+          "type": "named",
+          "data": {
+            "name": "StopShooter"
+          }
+        },
+        {
+          "type": "path",
+          "data": {
+            "pathName": "Right Trench2"
+          }
+        },
+        {
+          "type": "named",
+          "data": {
+            "name": "AutoShoot"
           }
         }
       ]
