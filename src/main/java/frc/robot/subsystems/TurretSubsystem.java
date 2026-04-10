@@ -152,6 +152,14 @@ public class TurretSubsystem extends SubsystemBase {
     private double previousTargetMechRot = 0.0;
     private double previousTargetTimestamp = 0.0;
 
+    // ===== AIM POINT SMOOTHING =====
+    // Low-pass filter on the compensated target to reduce jitter from noisy
+    // velocity data. Alpha = 0.0 (no smoothing) to 1.0 (no change).
+    // 0.3 means 30% new value + 70% previous — smooths out frame-to-frame noise
+    // while still tracking real movement within ~3 loops (~60ms).
+    private static final double AIM_SMOOTH_ALPHA = 0.3;
+    private Translation2d smoothedCompensatedTarget = null;
+
     public TurretSubsystem() {
         // PID + Feedforward gains for position control
         // KP: How aggressively to correct error (higher = faster, may oscillate)
@@ -469,7 +477,16 @@ public class TurretSubsystem extends SubsystemBase {
             double timeOfFlight = distance / shotSpeed;
             compensated = originalTarget.minus(totalVelocity.times(timeOfFlight));
         }
-        return compensated;
+
+        // Smooth the compensated target to reduce jitter from noisy velocity data
+        if (smoothedCompensatedTarget == null) {
+            smoothedCompensatedTarget = compensated;
+        } else {
+            smoothedCompensatedTarget = new Translation2d(
+                AIM_SMOOTH_ALPHA * compensated.getX() + (1.0 - AIM_SMOOTH_ALPHA) * smoothedCompensatedTarget.getX(),
+                AIM_SMOOTH_ALPHA * compensated.getY() + (1.0 - AIM_SMOOTH_ALPHA) * smoothedCompensatedTarget.getY());
+        }
+        return smoothedCompensatedTarget;
     }
 
     /**
@@ -549,7 +566,7 @@ public class TurretSubsystem extends SubsystemBase {
         Pose2d compensatedPose = new Pose2d(compensated, targetPose.getRotation());
         double targetMechRot = calculateTargetMechanismRotations(robotPose, compensatedPose);
         double currentPos = turretMotor.getPosition().getValueAsDouble();
-        return Math.abs(currentPos - targetMechRot) < 0.007; // 0.007 rot = ~2.5 degrees
+        return Math.abs(currentPos - targetMechRot) < 0.012; // 0.012 rot = ~4.3 degrees
     }
 
     @Override

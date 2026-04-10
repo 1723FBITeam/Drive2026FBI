@@ -46,7 +46,7 @@ public class AutoShootCommand extends Command {
     // Consecutive loops the turret has been on-target (prevents firing on flickers)
     private int aimedLoopCount = 0;
     // Minimum consecutive aimed loops before allowing feed (3 loops = ~60ms)
-    private static final int MIN_AIMED_LOOPS = 2;
+    private static final int MIN_AIMED_LOOPS = 1;
 
     private final Supplier<Pose2d> targetSupplier;
     private final Supplier<Boolean> hubActiveSupplier;
@@ -264,9 +264,9 @@ public class AutoShootCommand extends Command {
         }
 
         // Speed-dependent feed delay (only applies to FIRST shot):
-        // Stationary: 0.10s — turret is stable, fire fast
-        // Moving: 0.30s — wait for velocity compensation to settle
-        double feedDelay = robotSpeed < 0.3 ? 0.10 : 0.30;
+        // Stationary: 0.05s — turret is stable, fire fast
+        // Moving: 0.15s — brief wait for velocity compensation to settle
+        double feedDelay = robotSpeed < 0.3 ? 0.05 : 0.15;
 
         // FEEDING LOGIC:
         // To START feeding (first shot): need stable aim + flywheels ready + feed delay elapsed.
