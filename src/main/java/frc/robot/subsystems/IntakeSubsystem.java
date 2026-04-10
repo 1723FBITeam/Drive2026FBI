@@ -141,7 +141,7 @@ public class IntakeSubsystem extends SubsystemBase {
     private double activeSpeed = 0.60; // Default speed
 
     public void toggleSpeed() {
-    activeSpeed = (activeSpeed == 0.60) ? 1.0 : 0.60;
+    activeSpeed = (activeSpeed == 0.60) ? 0.80 : 0.60;
     }
 
     public double getActiveSpeed() {
