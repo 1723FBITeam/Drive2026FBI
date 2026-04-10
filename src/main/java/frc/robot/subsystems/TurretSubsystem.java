@@ -3,6 +3,7 @@ package frc.robot.subsystems;
 import com.ctre.phoenix6.configs.FeedbackConfigs;
 import com.ctre.phoenix6.configs.MotionMagicConfigs;
 import com.ctre.phoenix6.configs.MotorOutputConfigs;
+import com.ctre.phoenix6.configs.CurrentLimitsConfigs;
 import com.ctre.phoenix6.configs.Slot0Configs;
 import com.ctre.phoenix6.configs.Slot1Configs;
 import com.ctre.phoenix6.configs.SoftwareLimitSwitchConfigs;
@@ -210,7 +211,7 @@ public class TurretSubsystem extends SubsystemBase {
         turretMotor.getConfigurator().apply(motorOutput);
 
         // ===== CURRENT LIMITS =====
-        var turretCurrentLimits = new com.ctre.phoenix6.configs.CurrentLimitsConfigs()
+        var turretCurrentLimits = new CurrentLimitsConfigs()
             .withSupplyCurrentLimit(20)
             .withSupplyCurrentLimitEnable(true)
             .withStatorCurrentLimit(40)

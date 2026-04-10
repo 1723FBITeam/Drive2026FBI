@@ -29,6 +29,7 @@ import edu.wpi.first.networktables.NetworkTableInstance;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.DriverStation.Alliance;
 import edu.wpi.first.wpilibj.smartdashboard.Field2d;
+import edu.wpi.first.wpilibj.RobotController;
 import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.Command;
@@ -743,6 +744,8 @@ public class RobotContainer {
 
                 SmartDashboard.putBoolean("Vision Enabled", visionEnabled);
                 SmartDashboard.putBoolean("Hub Active", isHubActive());
+                SmartDashboard.putNumber("Battery Voltage", RobotController.getBatteryVoltage());
+                SmartDashboard.putNumber("Match Time", DriverStation.getMatchTime());
 
                 // Robot speed for at-rest vs moving diagnostics
                 ChassisSpeeds speeds = drivetrain.getState().Speeds;

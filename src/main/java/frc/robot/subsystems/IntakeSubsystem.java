@@ -1,6 +1,7 @@
 package frc.robot.subsystems;
 
 import com.ctre.phoenix6.configs.MotorOutputConfigs;
+import com.ctre.phoenix6.configs.CurrentLimitsConfigs;
 import com.ctre.phoenix6.configs.TalonFXSConfiguration;
 import com.ctre.phoenix6.controls.PositionVoltage;
 import com.ctre.phoenix6.hardware.TalonFX;
@@ -101,7 +102,7 @@ public class IntakeSubsystem extends SubsystemBase {
         intakeRightActivator.setPosition(0);
 
         // ===== CURRENT LIMITS =====
-        var rollerCurrentLimits = new com.ctre.phoenix6.configs.CurrentLimitsConfigs()
+        var rollerCurrentLimits = new CurrentLimitsConfigs()
             .withSupplyCurrentLimit(30)
             .withSupplyCurrentLimitEnable(true)
             .withStatorCurrentLimit(60)
