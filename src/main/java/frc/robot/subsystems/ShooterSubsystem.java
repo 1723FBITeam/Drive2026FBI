@@ -199,18 +199,18 @@ public class ShooterSubsystem extends SubsystemBase {
     //   3.71m (146in): diagonal shot, made it well — confirmed good
     //   4.03m: screenshot data looks good
     //   5.06m (199in): made 1/missed 1, hood too angled — lowered from 0.55 to 0.48
-    hoodTable.put(1.0, 0.10);   // Close range — give it some angle so ball arcs up
-    hoodTable.put(1.3, 0.15);   // Raised from 0.13 — flat hood can't score at this range
-    hoodTable.put(2.1, 0.21);
-    hoodTable.put(3.0, 0.28);
-    hoodTable.put(3.35, 0.31);  // NEW — tested at 123in, slightly less hood than interp gave
-    hoodTable.put(3.8, 0.36);
-    hoodTable.put(4.7, 0.44);
-    hoodTable.put(5.1, 0.50);   // NEW — tested at 199in, was 0.55 (too much), lowered
-    hoodTable.put(5.5, 0.59);   // Adjusted down from 0.55 based on 5.1m result
-    hoodTable.put(6.5, 0.68);   // Adjusted down from 0.63 based on trend
-    hoodTable.put(7.5, 0.75);   // Extended — far shots need flatter hood
-    hoodTable.put(8.5, 0.85);   // Extended — NEEDS CALIBRATION
+    hoodTable.put(1.0, 0.10);   // Close range — unchanged
+    hoodTable.put(1.3, 0.15);   // Unchanged
+    hoodTable.put(2.1, 0.21);   // Unchanged
+    hoodTable.put(3.0, 0.30);   // +0.02
+    hoodTable.put(3.35, 0.34);  // +0.03
+    hoodTable.put(3.8, 0.40);   // +0.04
+    hoodTable.put(4.7, 0.50);   // +0.06
+    hoodTable.put(5.1, 0.58);   // +0.08
+    hoodTable.put(5.5, 0.66);   // +0.07
+    hoodTable.put(6.5, 0.76);   // +0.08
+    hoodTable.put(7.5, 0.82);   // +0.07
+    hoodTable.put(8.5, 0.85);   // unchanged (near HOOD_MAX)
 
     // Flywheel speed table: distance → speed in Rotations Per Second (RPS)
     // CALIBRATION LOG:
