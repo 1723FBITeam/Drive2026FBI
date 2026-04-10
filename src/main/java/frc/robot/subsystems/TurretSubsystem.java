@@ -157,7 +157,7 @@ public class TurretSubsystem extends SubsystemBase {
     // velocity data. Alpha = 0.0 (no smoothing) to 1.0 (no change).
     // 0.3 means 30% new value + 70% previous — smooths out frame-to-frame noise
     // while still tracking real movement within ~3 loops (~60ms).
-    private static final double AIM_SMOOTH_ALPHA = 0.3;
+    private static final double AIM_SMOOTH_ALPHA = 0.10;
     private Translation2d smoothedCompensatedTarget = null;
 
     public TurretSubsystem() {

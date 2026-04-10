@@ -79,6 +79,7 @@ public class AutoShootCommand extends Command {
     private final DoublePublisher ntShotCompensationDeg;
     private final DoublePublisher ntShotExitVelocity;  // Physics-predicted ball exit velocity (m/s)
     private final DoublePublisher ntShotHoodDistance;   // Latency-compensated distance used for hood
+    private final StringPublisher ntFeedBlockReason;    // Why the feeder is off (if it is)
     private int telemetryCounter = 0;
 
     public AutoShootCommand(TurretSubsystem turret, ShooterSubsystem shooter,
@@ -107,6 +108,7 @@ public class AutoShootCommand extends Command {
         ntShotCompensationDeg = shotTable.getDoubleTopic("Shot Vel Comp Deg").publish();
         ntShotExitVelocity = shotTable.getDoubleTopic("Shot Exit Vel (m/s)").publish();
         ntShotHoodDistance = shotTable.getDoubleTopic("Shot Hood Distance").publish();
+        ntFeedBlockReason = shotTable.getStringTopic("Feed Block Reason").publish();
     }
 
     @Override
@@ -276,6 +278,9 @@ public class AutoShootCommand extends Command {
         // Flywheel dips from ball loading are expected — they recover between balls.
         // Brief aim wobbles while moving are OK — the ball is already in the flywheels
         // by the time the turret shifts a degree or two.
+        // Track why the feeder is blocked (for post-match analysis)
+        String feedBlockReason = "NONE";
+
         if (feeding) {
             // Already feeding — only stop for hard safety
             if (resetImminent || inTrench || nearTrenchFromNeutral || hubShotBlocked) {
@@ -284,6 +289,10 @@ public class AutoShootCommand extends Command {
                 feeding = false;
                 readyTimestamp = 0.0;
                 aimedLoopCount = 0;
+                if (resetImminent) feedBlockReason = "TURRET RESETTING";
+                else if (inTrench) feedBlockReason = "IN TRENCH";
+                else if (nearTrenchFromNeutral) feedBlockReason = "NEAR TRENCH";
+                else if (hubShotBlocked) feedBlockReason = "HUB INACTIVE";
             } else {
                 shooter.runFeeder(0.65);
                 shooter.runIndexer(0.45);
@@ -301,6 +310,12 @@ public class AutoShootCommand extends Command {
                 }
             } else {
                 readyTimestamp = 0.0;
+                if (!stableAim) feedBlockReason = "NOT AIMED";
+                else if (!flywheelsReady) feedBlockReason = "FLYWHEELS SPINNING UP";
+                else if (resetImminent) feedBlockReason = "TURRET RESETTING";
+                else if (inTrench) feedBlockReason = "IN TRENCH";
+                else if (nearTrenchFromNeutral) feedBlockReason = "NEAR TRENCH";
+                else if (hubShotBlocked) feedBlockReason = "HUB INACTIVE";
             }
         }
 
@@ -369,6 +384,7 @@ public class AutoShootCommand extends Command {
             }
             ntShotState.set(state);
             ntShotMethod.set(shotMethod);
+            ntFeedBlockReason.set(feedBlockReason);
         }
     }
 

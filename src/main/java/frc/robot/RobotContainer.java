@@ -204,6 +204,11 @@ public class RobotContainer {
         // Co-pilot right stick press toggles this.
         private boolean visionEnabled = true;
 
+        // ===== TOGGLE STATE TRACKING =====
+        // Published to NetworkTables so we can see in logs when shooting/intake were active
+        private boolean shootingActive = false;
+        private boolean intakeActive = false;
+
         // ===== PASS TARGET SIDE HYSTERESIS =====
         // Tracks which side (left/right) we're currently passing to.
         // true = left (high Y), false = right (low Y).
@@ -321,8 +326,8 @@ public class RobotContainer {
                 .toggleOnTrue(new AutoShootCommand(turretSubsystem, shooterSubsystem, drivetrain, this::getSmartTarget, this::isHubActive)
                         .alongWith(
                             new StartEndCommand(
-                                () -> shooterSubsystem.runIndexer(0.5), // Start the spindexer at 50% speed
-                                () -> shooterSubsystem.stopIndexer()    // Stop the spindexer when toggled off
+                                () -> { shooterSubsystem.runIndexer(0.5); shootingActive = true; },
+                                () -> { shooterSubsystem.stopIndexer(); shootingActive = false; }
                             )
                         ));
 
@@ -380,12 +385,14 @@ public class RobotContainer {
         controller.x().toggleOnTrue(
                 // --- COMMAND TO START (Deploy & Spin) ---
                 new SequentialCommandGroup(
+                        new InstantCommand(() -> intakeActive = true),
                         new InstantCommand(intakeSubsystem::deployOut, intakeSubsystem),
                         new WaitCommand(0.5),
                         new InstantCommand(intakeSubsystem::stopDeploy, intakeSubsystem),
                         // This RunCommand keeps the rollers spinning until the button is toggled OFF
                         new RunCommand(() -> intakeSubsystem.runIntake(0.55), intakeSubsystem))
                         .finallyDo((interrupted) -> {
+                            intakeActive = false;
                             // --- COMMAND TO STOP (Retract & Stop) ---
                             // This only runs when the toggle is turned OFF (interrupting the RunCommand)
                             new SequentialCommandGroup(
@@ -752,6 +759,8 @@ public class RobotContainer {
 
                 SmartDashboard.putBoolean("Vision Enabled", visionEnabled);
                 SmartDashboard.putBoolean("Hub Active", isHubActive());
+                SmartDashboard.putBoolean("Shooting Active", shootingActive);
+                SmartDashboard.putBoolean("Intake Active", intakeActive);
                 SmartDashboard.putNumber("Battery Voltage", RobotController.getBatteryVoltage());
                 SmartDashboard.putNumber("Match Time", DriverStation.getMatchTime());
 
