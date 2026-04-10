@@ -520,17 +520,17 @@ public class RobotContainer {
         copilot.b()
                 .onTrue(new InstantCommand(() -> shooterSubsystem.stopAll()));
 
-        // --- Bumpers (hood nudge) ---
+        // --- Bumpers (permanent hood offset — each press adds/subtracts) ---
 
-        // Left Bumper — nudge hood servo UP (hold)
-        copilot.leftBumper()
-                .whileTrue(Commands.run(() -> shooterSubsystem.nudgeHood(0.005)));
-
-        // Right Bumper — nudge hood servo DOWN (hold)
+        // Right Bumper — nudge hood offset UP (+0.02 per press, persists)
         copilot.rightBumper()
-                .whileTrue(Commands.run(() -> shooterSubsystem.nudgeHood(-0.005)));
+                .onTrue(new InstantCommand(() -> shooterSubsystem.nudgeHoodUp()));
 
-        // --- D-pad (live tuning offsets — works in both modes) ---
+        // Left Bumper — nudge hood offset DOWN (-0.02 per press, persists)
+        copilot.leftBumper()
+                .onTrue(new InstantCommand(() -> shooterSubsystem.nudgeHoodDown()));
+
+        // --- D-pad (turret aim nudge) ---
 
         // D-pad Left — nudge turret aim left (CCW) by 1 degree
         copilot.povLeft()
@@ -540,6 +540,8 @@ public class RobotContainer {
         copilot.povRight()
                 .onTrue(new InstantCommand(() -> turretSubsystem.nudgeAimRight()));
 
+        // D-pad Up/Down — power nudge (permanent offset)
+
         // D-pad Up — increase shooter power by 1 RPS
         copilot.povUp()
                 .onTrue(new InstantCommand(() -> shooterSubsystem.nudgePowerUp()));
@@ -547,6 +549,8 @@ public class RobotContainer {
         // D-pad Down — decrease shooter power by 1 RPS
         copilot.povDown()
                 .onTrue(new InstantCommand(() -> shooterSubsystem.nudgePowerDown()));
+
+        // --- Triggers (free — manual hood nudge removed, use bumpers for offset) ---
 
         // --- Menu buttons ---
 

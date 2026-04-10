@@ -100,6 +100,13 @@ public class ShooterSubsystem extends SubsystemBase {
   // Each D-pad press nudges by 1 RPS (~60 RPM)
   private static final double RPS_NUDGE = 1.0;
 
+  // ===== HOOD OFFSET (adjusted by co-pilot bumpers) =====
+  // This offset is added to every hood position command.
+  // Each bumper press nudges by 0.02 (~1° of hood angle).
+  // Positive = more angle (ball goes higher), Negative = less angle (ball goes flatter).
+  private double hoodOffset = 0.0;
+  private static final double HOOD_NUDGE = 0.02;
+
   // ===== DASHBOARD TELEMETRY =====
   // These publish values to Shuffleboard so we can see what's happening in real time
   private final DoublePublisher ntHoodPos;
@@ -201,15 +208,15 @@ public class ShooterSubsystem extends SubsystemBase {
     //   5.06m (199in): made 1/missed 1, hood too angled — lowered from 0.55 to 0.48
     hoodTable.put(1.0, 0.10);   // Close range — unchanged
     hoodTable.put(1.3, 0.15);   // Unchanged
-    hoodTable.put(2.1, 0.21);   // Unchanged
-    hoodTable.put(3.0, 0.30);   // +0.02
-    hoodTable.put(3.35, 0.34);  // +0.03
-    hoodTable.put(3.8, 0.40);   // +0.04
-    hoodTable.put(4.7, 0.50);   // +0.06
-    hoodTable.put(5.1, 0.58);   // +0.08
-    hoodTable.put(5.5, 0.66);   // +0.07
-    hoodTable.put(6.5, 0.76);   // +0.08
-    hoodTable.put(7.5, 0.82);   // +0.07
+    hoodTable.put(2.1, 0.23);   // +0.02
+    hoodTable.put(3.0, 0.33);   // +0.03
+    hoodTable.put(3.35, 0.38);  // +0.04
+    hoodTable.put(3.8, 0.44);   // +0.04
+    hoodTable.put(4.7, 0.55);   // +0.05
+    hoodTable.put(5.1, 0.63);   // +0.05
+    hoodTable.put(5.5, 0.70);   // +0.04
+    hoodTable.put(6.5, 0.78);   // +0.02
+    hoodTable.put(7.5, 0.83);   // +0.01
     hoodTable.put(8.5, 0.85);   // unchanged (near HOOD_MAX)
 
     // Flywheel speed table: distance → speed in Rotations Per Second (RPS)
@@ -328,12 +335,12 @@ public class ShooterSubsystem extends SubsystemBase {
 
   // ==================== CO-PILOT POWER OFFSET ====================
 
-  /** Nudge flywheel power UP (+1 RPS). Called by co-pilot D-pad up. */
+  /** Nudge flywheel power UP (+1 RPS). Called by co-pilot trigger. */
   public void nudgePowerUp() {
     rpsOffset += RPS_NUDGE;
   }
 
-  /** Nudge flywheel power DOWN (-1 RPS). Called by co-pilot D-pad down. */
+  /** Nudge flywheel power DOWN (-1 RPS). Called by co-pilot trigger. */
   public void nudgePowerDown() {
     rpsOffset -= RPS_NUDGE;
   }
@@ -341,6 +348,26 @@ public class ShooterSubsystem extends SubsystemBase {
   /** Reset the power offset back to zero. */
   public void resetPowerOffset() {
     rpsOffset = 0.0;
+  }
+
+  /** Nudge hood offset UP (more angle). Called by co-pilot right bumper. */
+  public void nudgeHoodUp() {
+    hoodOffset += HOOD_NUDGE;
+  }
+
+  /** Nudge hood offset DOWN (less angle). Called by co-pilot left bumper. */
+  public void nudgeHoodDown() {
+    hoodOffset -= HOOD_NUDGE;
+  }
+
+  /** Reset the hood offset back to zero. */
+  public void resetHoodOffset() {
+    hoodOffset = 0.0;
+  }
+
+  /** Get the current hood offset for telemetry. */
+  public double getHoodOffset() {
+    return hoodOffset;
   }
 
   /**
@@ -413,6 +440,13 @@ public class ShooterSubsystem extends SubsystemBase {
     double hood = (1.0 - physicsWeight) * tableHood + physicsWeight * physicsHood;
     double rps = (1.0 - physicsWeight) * tableRPS + physicsWeight * physicsRPS;
 
+    // Speed-based hood bump: when moving, the ball tends to fall short because
+    // of timing delays (servo latency, ball flight during robot motion).
+    // Add extra hood angle proportional to how much physics is in the blend.
+    // At full speed (physicsWeight=1.0): +0.06 hood (~3° more angle)
+    // At rest (physicsWeight=0.0): no change (table values are calibrated)
+    hood += physicsWeight * 0.06;
+
     setHoodPosition(MathUtil.clamp(hood, HOOD_MIN, HOOD_MAX));
     runFlywheelsRPS(MathUtil.clamp(rps, 0.0, 60.0));
   }
@@ -464,7 +498,16 @@ public class ShooterSubsystem extends SubsystemBase {
    * @param pos Position from 0.0 (flat) to 1.0 (max angle up). Clamped to safe range.
    */
   public void setHoodPosition(double pos) {
-    pos = MathUtil.clamp(pos, HOOD_MIN, HOOD_MAX); // Don't let it go past physical limits
+    pos = pos + hoodOffset; // Apply co-pilot hood offset
+    pos = MathUtil.clamp(pos, HOOD_MIN, HOOD_MAX);
+    currentHoodPosition = pos;
+    hoodServo.set(pos);
+  }
+
+  /** Set hood to an absolute position, bypassing the co-pilot offset.
+   *  Used by trench safety to force the hood fully flat. */
+  public void setHoodPositionRaw(double pos) {
+    pos = MathUtil.clamp(pos, HOOD_MIN, HOOD_MAX);
     currentHoodPosition = pos;
     hoodServo.set(pos);
   }
@@ -497,14 +540,22 @@ public class ShooterSubsystem extends SubsystemBase {
   public void periodic() {
     // ===== TRENCH SAFETY (runs every loop, 50Hz) =====
     // Force hood flat when in a trench zone AND on the trench side of the field.
-    // Uses the narrow isInTrenchZone (asymmetric buffers) so we can still
-    // shoot near the trench on the alliance side when leaving our zone.
-    // AutoShootCommand handles the early hood-flatten for the wider approach zone.
+    // Also flatten when approaching from the NEUTRAL side — the robot drives
+    // fast from neutral and the hood needs to be down before reaching the trench.
+    // Does NOT flatten early on the alliance side (we want to shoot near the trench).
     // Does NOT trigger when going over the bump (middle of field).
-    if (Constants.FieldConstants.isInTrenchZone(robotXSupplier.getAsDouble())
-        && Constants.FieldConstants.isOnTrenchSide(robotYSupplier.getAsDouble())) {
-      if (currentHoodPosition > Constants.FieldConstants.TRENCH_HOOD_THRESHOLD) {
-        setHoodPosition(0.0);
+    double robotX = robotXSupplier.getAsDouble();
+    double robotY = robotYSupplier.getAsDouble();
+    if (Constants.FieldConstants.isOnTrenchSide(robotY)) {
+      boolean inTrench = Constants.FieldConstants.isInTrenchZone(robotX);
+      // Neutral-side approach: wider zone, only on the neutral side of the trench
+      boolean nearFromNeutral = Constants.FieldConstants.isNearTrenchZone(robotX)
+          && !Constants.FieldConstants.isInTrenchZone(robotX)
+          && ((robotX > 4.63 && robotX < 8.27) || (robotX < 11.92 && robotX > 8.27));
+
+      if ((inTrench || nearFromNeutral)
+          && currentHoodPosition > Constants.FieldConstants.TRENCH_HOOD_THRESHOLD) {
+        setHoodPositionRaw(0.0);
       }
     }
 
@@ -518,5 +569,6 @@ public class ShooterSubsystem extends SubsystemBase {
     ntHoodPos.set(currentHoodPosition);
     ntReady.set(isReadyToShoot());
     ntRpsOffset.set(rpsOffset);
+    SmartDashboard.putNumber("Hood Offset", hoodOffset);
   }
 }

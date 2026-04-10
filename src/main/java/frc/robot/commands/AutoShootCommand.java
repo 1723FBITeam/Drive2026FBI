@@ -204,14 +204,13 @@ public class AutoShootCommand extends Command {
         boolean hubShotBlocked = !isPassing && !hubActive;
 
         if (inTrench) {
-            // In the trench — hood flat, no shooting
-            shooter.setHoodPosition(0.0);
+            // In the trench — hood flat (bypass offset), no shooting
+            shooter.setHoodPositionRaw(0.0);
             shooter.stopFlywheels();
             shotMethod = "TRENCH";
         } else if (nearTrenchFromNeutral) {
-            // Approaching trench — flatten hood early so drivetrain doesn't slow down,
-            // but keep flywheels spinning so we're ready to shoot when we exit
-            shooter.setHoodPosition(0.0);
+            // Approaching trench — flatten hood early (bypass offset)
+            shooter.setHoodPositionRaw(0.0);
             shotMethod = "NEAR TRENCH";
         } else if (hubShotBlocked) {
             shooter.stopFlywheels();
