@@ -116,6 +116,10 @@ public class AutoShootCommand extends Command {
         aimedLoopCount = 0;
         previousDistance = 0.0;
         targetPose = targetSupplier.get();
+        // Pre-spin flywheels immediately so they're ready faster.
+        // The first execute() loop will set the real target RPS, but starting
+        // at idle pre-spin cuts ~0.5s off the first shot.
+        shooter.runFlywheelsRPS(ShooterSubsystem.IDLE_PRESPIN_RPS);
     }
 
     @Override
@@ -180,8 +184,14 @@ public class AutoShootCommand extends Command {
         // drivetrain speed limiter doesn't slam us to 20%.
         // On the alliance side, we want to shoot as close to the trench as possible,
         // so we only flatten when actually in the trench (inTrench above).
-        boolean nearTrenchFromNeutral = Constants.FieldConstants.isNearTrenchZone(robotPose.getX())
-                        && !Constants.FieldConstants.isInTrenchZone(robotPose.getX())
+        // Blue trench center ~4.63m, Red trench center ~11.92m.
+        // Neutral side = X > center for blue, X < center for red.
+        double robotX = robotPose.getX();
+        boolean inNearZoneOnly = Constants.FieldConstants.isNearTrenchZone(robotX)
+                        && !Constants.FieldConstants.isInTrenchZone(robotX);
+        boolean onNeutralSide = (robotX > 4.63 && robotX < 8.27)   // neutral side of blue trench
+                             || (robotX < 11.92 && robotX > 8.27);  // neutral side of red trench
+        boolean nearTrenchFromNeutral = inNearZoneOnly && onNeutralSide
                         && Constants.FieldConstants.isOnTrenchSide(robotPose.getY());
         // Detect if we're aiming at a passing target (not the hub).
         boolean isPassing = !targetPose.equals(Constants.FieldConstants.BLUE_HUB_POSE)

@@ -55,7 +55,7 @@ public class CommandSwerveDrivetrain extends TunerSwerveDrivetrain implements Su
     private final SwerveRequest.SysIdSwerveSteerGains m_steerCharacterization = new SwerveRequest.SysIdSwerveSteerGains();
     private final SwerveRequest.SysIdSwerveRotation m_rotationCharacterization = new SwerveRequest.SysIdSwerveRotation();
 
-    private double speedMultiplier = 0.4;
+    private double speedMultiplier = 0.55;
 
     public void setSpeedMultiplier(double multiplier) {
     this.speedMultiplier = multiplier;

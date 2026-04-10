@@ -321,18 +321,21 @@ public class RobotContainer {
         // RIGHT TRIGGER — speed boost (hold)
         // While held: sets speed multiplier to 1.0 (full speed)
         // Released: returns to 0.4 (40% speed — the default)
+        // RIGHT TRIGGER — full speed (hold)
+        // While held: sets speed multiplier to 1.0 (max speed)
+        // Released: returns to 0.55 (default competition speed)
         controller.rightTrigger()
                 .whileTrue(new StartEndCommand(
                         () -> drivetrain.setSpeedMultiplier(1.0),
-                        () -> drivetrain.setSpeedMultiplier(0.4)));
+                        () -> drivetrain.setSpeedMultiplier(0.55)));
 
-        // LEFT TRIGGER — speed reduction (hold)
-        // While held: sets speed multiplier to 0.2 (reduced speed)
-        // Released: returns to 0.4 (40% speed — the default)
+        // LEFT TRIGGER — crawl mode (hold)
+        // While held: sets speed multiplier to 0.15 (very slow, for alignment)
+        // Released: returns to 0.55 (default competition speed)
         controller.leftTrigger()
                 .whileTrue(new StartEndCommand(
-                        () -> drivetrain.setSpeedMultiplier(0.2),
-                        () -> drivetrain.setSpeedMultiplier(0.4)));
+                        () -> drivetrain.setSpeedMultiplier(0.15),
+                        () -> drivetrain.setSpeedMultiplier(0.55)));
 
         // X BUTTON — toggle intake on/off
         // Press once: deploys intake out, starts rollers
@@ -541,9 +544,10 @@ public class RobotContainer {
                         drivetrain.getState().Speeds),
                 turretSubsystem));
 
-        // Shooter default: flywheels off when not actively shooting.
-        // AutoShootCommand requires the shooter subsystem, so this default is
-        // automatically interrupted when shooting and resumes when shooting stops.
+        // Shooter default: flywheels OFF when not actively shooting.
+        // No pre-spin in teleop — idle flywheels can accidentally spit balls.
+        // AutoShootCommand handles spin-up when the driver presses Y.
+        // In auto, the AutoShoot named command starts flywheels directly.
         shooterSubsystem.setDefaultCommand(new RunCommand(
                 () -> {
                     shooterSubsystem.stopFlywheels();
