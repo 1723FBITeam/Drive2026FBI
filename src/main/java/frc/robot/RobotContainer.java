@@ -379,32 +379,36 @@ public class RobotContainer {
         // Press once: deploys intake out, starts rollers
         // Press again: retracts intake, stops rollers
         controller.x().toggleOnTrue(
-                new SequentialCommandGroup(
+        new SequentialCommandGroup(
+                new WaitCommand(0.3),
                 new InstantCommand(() -> intakeActive = true),
                 new InstantCommand(intakeSubsystem::deployOut, intakeSubsystem),
                 new WaitCommand(0.3),
                 new InstantCommand(intakeSubsystem::stopDeploy, intakeSubsystem),
-        // Added "new" here and ensured it is part of the sequence
-                new RunCommand(
-                () -> intakeSubsystem.runIntake(intakeSubsystem.getActiveSpeed()), 
-                intakeSubsystem
-                )
+                
+                // CHANGED: We replaced the active runIntake command with an empty RunCommand.
+                // This keeps the command "alive" so toggleOnTrue works, but lets your 
+                // periodic() method handle turning the actual motors on and off!
+                new RunCommand(() -> {}, intakeSubsystem)
+
         ).finallyDo((interrupted) -> {
                 intakeActive = false;
                 // --- COMMAND TO STOP (Retract & Stop) ---
                 new SequentialCommandGroup(
-                new InstantCommand(intakeSubsystem::stopIntake, intakeSubsystem),
-                new InstantCommand(intakeSubsystem::deployIn, intakeSubsystem),
-                new WaitCommand(0.3),
-                new InstantCommand(intakeSubsystem::stopDeploy, intakeSubsystem),
-                new WaitCommand(0.3),
-                new InstantCommand(() -> {
-        double currentAvg = intakeSubsystem.getAverageDeployPosition();
-        intakeSubsystem.holdPosition(currentAvg);
-                }, intakeSubsystem)
-        ).schedule(); // We schedule this because the original command is finishing/ending
-    })
-);
+                        // It's still good practice to explicitly stop the intake here 
+                        // as a fallback safety measure when retracting.
+                        new InstantCommand(intakeSubsystem::stopIntake, intakeSubsystem),
+                        new InstantCommand(intakeSubsystem::deployIn, intakeSubsystem),
+                        new WaitCommand(0.3),
+                        new InstantCommand(intakeSubsystem::stopDeploy, intakeSubsystem),
+                        new WaitCommand(0.3),
+                        new InstantCommand(() -> {
+                            double currentAvg = intakeSubsystem.getAverageDeployPosition();
+                            intakeSubsystem.holdPosition(currentAvg);
+                        }, intakeSubsystem)
+                ).schedule(); // We schedule this because the original command is finishing/ending
+        })
+        );
 
         // A BUTTON — jostle intake to unstick balls
         // While held: continuously repeat the jostle sequence (with a short gap) until
@@ -654,10 +658,10 @@ public class RobotContainer {
 
                     // ✅ GET SPEEDS FROM POSE
                     // This gets the actual physical velocity of the robot from the Pose Estimator
-                    ChassisSpeeds currentRobotSpeeds = drivetrain.getState().Speeds;
+                //     ChassisSpeeds currentRobotSpeeds = drivetrain.getState().Speeds;
 
                     // ✅ PASS TO INTAKE
-                    intakeSubsystem.handleAutoRetract(currentRobotSpeeds);
+                //     intakeSubsystem.handleAutoRetract(currentRobotSpeeds);
                     // 🔽 APPLY LIMITERS + MULTIPLIER (UNCHANGED LOGIC)
                         double mult = drivetrain.getSpeedMultiplier();
 

@@ -134,18 +134,17 @@ public class IntakeSubsystem extends SubsystemBase {
 
     /**
      * Run the intake rollers to grab notes.
-     * 
-     * @param speed Duty cycle from -1.0 to 1.0 (positive = intake, negative = spit
-     *              out)
+     * * @param speed Duty cycle from -1.0 to 1.0 (positive = intake, negative = spit
+     * out)
      */
     private double activeSpeed = 0.60; // Default speed
 
     public void toggleSpeed() {
-    activeSpeed = (activeSpeed == 0.60) ? 0.80 : 0.60;
+        activeSpeed = (activeSpeed == 0.60) ? 0.80 : 0.60;
     }
 
     public double getActiveSpeed() {
-    return activeSpeed;
+        return activeSpeed;
     }
     public void runIntake(double activeSpeed) {
         intakeLeftMotor.set(activeSpeed);
@@ -241,31 +240,29 @@ public class IntakeSubsystem extends SubsystemBase {
 
     /**
      * Checks robot velocity and auto-retracts if moving fast in any direction.
-     * 
-     * @param currentXVelocity Velocity in meters per second (from drivetrain state)
+     * * @param currentXVelocity Velocity in meters per second (from drivetrain state)
      */
-    public void handleAutoRetract(double currentXVelocity) {
-        // If running, extended, and moving faster than 0.5 m/s in any direction
-        if (this.isRunning && this.isExtended && Math.abs(currentXVelocity) > 0.5) {
-            this.retractCommand().schedule();
-        }
-    }
+    // public void handleAutoRetract(double currentXVelocity) {
+    //     // If running, extended, and moving faster than 0.5 m/s in any direction
+    //     if (this.isRunning && this.isExtended && Math.abs(currentXVelocity) > 0.5) {
+    //         this.retractCommand().schedule();
+    //     }
+    // }
 
     /**
      * Checks actual robot movement from Odometry and auto-retracts if necessary.
      * Uses total translational speed (not just backward) so strafing and
      * diagonal movement also trigger retraction.
-     * 
-     * @param speeds The current ChassisSpeeds from the Pose Estimator/Drivetrain
-     *               state.
+     * * @param speeds The current ChassisSpeeds from the Pose Estimator/Drivetrain
+     * state.
      */
-    public void handleAutoRetract(ChassisSpeeds speeds) {
-        double totalSpeed = Math.hypot(speeds.vxMetersPerSecond, speeds.vyMetersPerSecond);
+    // public void handleAutoRetract(ChassisSpeeds speeds) {
+    //     double totalSpeed = Math.hypot(speeds.vxMetersPerSecond, speeds.vyMetersPerSecond);
 
-        if (this.isExtended && this.isRunning && totalSpeed > 2.0) {
-            this.retractCommand().schedule();
-        }
-    }
+    //     if (this.isExtended && this.isRunning && totalSpeed > 2.0) {
+    //         this.retractCommand().schedule();
+    //     }
+    // }
 
     // 3. Create the method to hold position
     public void holdPosition(double position) {
@@ -289,12 +286,31 @@ public class IntakeSubsystem extends SubsystemBase {
 
     @Override
     public void periodic() {
-        telemetryCounter++;
-        if (telemetryCounter % 5 != 0)
-            return; // ~10Hz
-
+        // 1. Get the current positions of both deploy actuators
         double leftPos = intakeLeftActivator.getPosition().getValueAsDouble();
         double rightPos = intakeRightActivator.getPosition().getValueAsDouble();
+
+        // 2. --- NEW LOGIC: AUTO INTAKE ROLLER CONTROL ---
+        if (leftPos > 0.95 && rightPos > 0.70) {
+            // If positions meet the threshold AND the intake isn't already running, turn it on
+            if (!isRunning) {
+                runIntake(activeSpeed);
+            }
+        } else {
+            // If positions fall below the threshold AND the intake is running, turn it off
+            if (isRunning) {
+                stopIntake();
+            }
+        }
+
+        // 3. Update telemetry loop counter
+        telemetryCounter++;
+        
+        // Return early if it's not the 5th loop (limits telemetry to ~10Hz)
+        // Note: The motor check above will still execute at the full 50Hz!
+        if (telemetryCounter % 5 != 0) {
+            return; 
+        }
 
         // No software limits — we intentionally allow the mechanism to coast and
         // settle under gravity. Telemetry continues below.
