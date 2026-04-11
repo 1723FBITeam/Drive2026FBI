@@ -260,7 +260,7 @@ public class AutoShootCommand extends Command {
 
         // Always run indexer when flywheels are spinning and not in trench/reset
         if (!resetImminent && !inTrench && !nearTrenchFromNeutral && shooter.getTargetRPS() > 0) {
-            shooter.runIndexer(0.5);
+            shooter.runIndexer(0.45);
         } else if (!feeding) {
             shooter.stopIndexer();
         }
@@ -298,8 +298,11 @@ public class AutoShootCommand extends Command {
                 shooter.runIndexer(0.45);
             }
         } else {
-            // Not yet feeding — require full ready check for first shot
-            if (stableAim && flywheelsReady && !resetImminent && !inTrench && !nearTrenchFromNeutral && !hubShotBlocked) {
+            // Not yet feeding — require full ready check for first shot.
+            // For passing shots, skip the aim check — accuracy matters less
+            // and we want to dump balls quickly.
+            boolean aimOK = isPassing || stableAim;
+            if (aimOK && flywheelsReady && !resetImminent && !inTrench && !nearTrenchFromNeutral && !hubShotBlocked) {
                 if (readyTimestamp == 0.0) {
                     readyTimestamp = Timer.getFPGATimestamp();
                 }

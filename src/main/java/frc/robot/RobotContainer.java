@@ -324,12 +324,8 @@ public class RobotContainer {
         // Press again: stops everything
         controller.y()
                 .toggleOnTrue(new AutoShootCommand(turretSubsystem, shooterSubsystem, drivetrain, this::getSmartTarget, this::isHubActive)
-                        .alongWith(
-                            new StartEndCommand(
-                                () -> { shooterSubsystem.runIndexer(0.5); shootingActive = true; },
-                                () -> { shooterSubsystem.stopIndexer(); shootingActive = false; }
-                            )
-                        ));
+                        .beforeStarting(() -> shootingActive = true)
+                        .finallyDo((interrupted) -> shootingActive = false));
 
         // LEFT TRIGGER — manual feeder + indexer (hold)
         // While held: runs feeder at 65% and indexer at 50%

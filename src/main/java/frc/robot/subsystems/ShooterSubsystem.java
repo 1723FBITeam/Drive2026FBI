@@ -243,11 +243,11 @@ public class ShooterSubsystem extends SubsystemBase {
     // Target: land 0.5–1m inside our alliance zone. Don't over-power.
     //
     // Hood: higher values = more arc.
-    passHoodTable.put(5.0, 0.55);    // NEEDS CALIBRATION
-    passHoodTable.put(7.0, 0.62);    // NEEDS CALIBRATION
-    passHoodTable.put(9.0, 0.68);    // NEEDS CALIBRATION
-    passHoodTable.put(11.0, 0.73);   // NEEDS CALIBRATION
-    passHoodTable.put(13.0, 0.78);   // NEEDS CALIBRATION
+    passHoodTable.put(5.0, 0.70);    // High arc for lob shots
+    passHoodTable.put(7.0, 0.78);    // NEEDS CALIBRATION
+    passHoodTable.put(9.0, 0.84);    // NEEDS CALIBRATION
+    passHoodTable.put(11.0, 0.90);   // NEEDS CALIBRATION
+    passHoodTable.put(13.0, 0.95);   // Max hood
 
     // RPS: pulled back from original values to avoid overshooting
     passRPSTable.put(5.0, 38.0);     // NEEDS CALIBRATION (was 45)

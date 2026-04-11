@@ -123,15 +123,20 @@ public class TurretSubsystem extends SubsystemBase {
     private static final double MOTION_MAGIC_ACCELERATION = 3.0;     // rps/s (reaches cruise in 0.30s)
     private static final double MOTION_MAGIC_JERK = 25.0;            // rps/s/s (smooth S-curve)
 
+    // Reset cruise velocity — 2x normal speed for fast 360° wraps
+    private static final double RESET_CRUISE_VELOCITY = MOTION_MAGIC_CRUISE_VELOCITY * 2.0;
+    private static final double RESET_ACCELERATION = MOTION_MAGIC_ACCELERATION * 2.0;
+
     // MotionMagicVoltage = "go to this position using a smooth motion profile"
     // Normal aiming uses Slot 0 (full PID gains)
     private final MotionMagicVoltage positionRequest = new MotionMagicVoltage(0)
         .withEnableFOC(false);
 
-    // Slower motion profile for resets — uses Slot 1 with gentler gains
+    // Faster motion profile for resets — uses Slot 1 with 2x speed
     private final MotionMagicVoltage resetPositionRequest = new MotionMagicVoltage(0)
         .withEnableFOC(false)
-        .withSlot(1);
+        .withSlot(1)
+        .withOverrideBrakeDurNeutral(false);
 
     // DutyCycleOut = simple "spin at X% power" for manual control and resets
     private final DutyCycleOut manualRequest = new DutyCycleOut(0);
@@ -395,15 +400,29 @@ public class TurretSubsystem extends SubsystemBase {
 
         if (moveDistance > RESET_THRESHOLD_ROTATIONS) {
             // Big move — this is a reset (wrapping around).
-            // No feedforward during resets — just get there smoothly.
-            isResetting = true;
+            // Switch to 2x Motion Magic speed for fast wraps.
+            if (!isResetting) {
+                isResetting = true;
+                turretMotor.getConfigurator().apply(
+                    new MotionMagicConfigs()
+                        .withMotionMagicCruiseVelocity(RESET_CRUISE_VELOCITY)
+                        .withMotionMagicAcceleration(RESET_ACCELERATION)
+                        .withMotionMagicJerk(MOTION_MAGIC_JERK * 2.0));
+            }
             turretMotor.setControl(resetPositionRequest.withPosition(targetMechRot));
         } else {
             // Normal aim — check if a previous reset is done
             if (isResetting && moveDistance < RESET_DONE_TOLERANCE) {
                 isResetting = false;
+                // Restore normal Motion Magic speed
+                turretMotor.getConfigurator().apply(
+                    new MotionMagicConfigs()
+                        .withMotionMagicCruiseVelocity(MOTION_MAGIC_CRUISE_VELOCITY)
+                        .withMotionMagicAcceleration(MOTION_MAGIC_ACCELERATION)
+                        .withMotionMagicJerk(MOTION_MAGIC_JERK));
             }
             if (isResetting) {
+                // Still resetting — keep using fast profile
                 turretMotor.setControl(resetPositionRequest.withPosition(targetMechRot));
             } else {
                 // Normal closed-loop position control with velocity feedforward.
