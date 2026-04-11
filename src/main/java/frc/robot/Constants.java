@@ -137,7 +137,7 @@ public class Constants {
         // value near the trench, the drivetrain slows down to give the servo time to retract.
         // Set this to the max hood position that still clears the trench (0.0 = fully flat).
         public static final double TRENCH_HOOD_THRESHOLD = 0.05;
-        private static final double TRENCH_APPROACH_MARGIN = 0.5; // meters beyond the normal buffer
+        private static final double TRENCH_APPROACH_MARGIN = 1.0; // meters beyond the normal buffer
 
         /** Returns true if the robot is approaching a trench zone (wider than isInTrenchZone).
          *  Used to auto-slow the drivetrain so the hood servo has time to retract. */

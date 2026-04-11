@@ -241,7 +241,7 @@ public class RobotContainer {
         //
         // PRE_ACTIVATE_SECONDS: start shooting this many seconds before the hub
         // turns on — balls in flight still count due to the 3-second scoring delay.
-        private static final double PRE_ACTIVATE_SECONDS = 3.0;
+        private static final double PRE_ACTIVATE_SECONDS = 2.0;
 
     public RobotContainer() {
         // Wire up the robot X supplier for trench hood safety
@@ -637,14 +637,17 @@ public class RobotContainer {
                     double speedScale = 0.75;
 
                     // Slow down near trench if hood is raised — need time for servo to retract.
-                    // 20% speed if hood is up (aggressive slow to protect hardware).
-                    // Normal speed if hood is already flat.
+                    // Only triggers when IN the trench zone, or approaching from the NEUTRAL side.
+                    // Alliance side is not affected — we need to shoot near the trench there.
                     double robotX = drivetrain.getState().Pose.getX();
                     double robotY = drivetrain.getState().Pose.getY();
-                    boolean nearTrench = (Constants.FieldConstants.isInTrenchZone(robotX)
-                            || Constants.FieldConstants.isNearTrenchZone(robotX))
+                    boolean inTrench = Constants.FieldConstants.isInTrenchZone(robotX)
                             && Constants.FieldConstants.isOnTrenchSide(robotY);
-                    if (nearTrench
+                    boolean nearFromNeutral = Constants.FieldConstants.isNearTrenchZone(robotX)
+                            && !Constants.FieldConstants.isInTrenchZone(robotX)
+                            && Constants.FieldConstants.isOnTrenchSide(robotY)
+                            && ((robotX > 4.63 && robotX < 8.27) || (robotX < 11.92 && robotX > 8.27));
+                    if ((inTrench || nearFromNeutral)
                             && shooterSubsystem.getHoodPosition() > Constants.FieldConstants.TRENCH_HOOD_THRESHOLD) {
                         speedScale = 0.20;
                     }
